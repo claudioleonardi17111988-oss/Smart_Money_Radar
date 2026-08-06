@@ -1,3 +1,8 @@
+import email
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import smtplib
 from datetime import datetime
 import os
 import pandas as pd
@@ -5,18 +10,27 @@ import requests
 import yfinance as yf
 
 # =====================================================================
-# CONFIGURAZIONE TELEGRAM & PARAMETRI RADAR
+# CONFIGURAZIONE TELEGRAM, EMAIL & PARAMETRI RADAR
 # =====================================================================
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CANALE_ACCUMULAZIONE_ID = os.environ.get(
     "CANALE_ACCUMULAZIONE_ID", "-1003454283658"
 )
 
+# Parametri per invio E-Mail SMTP (Gmail)
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
+APP_PASSWORD = os.environ.get("APP_PASSWORD")
+RECEIVER_EMAIL = os.environ.get(
+    "RECEIVER_EMAIL", SENDER_EMAIL
+)  # Se non specificato, invia a se stesso
+
 SOGLIA_STORNO_MINIMA = 15.0  # Storno dai max a 52W >= 15%
 SOGLIA_VOLUMI_SETTIMANA = 115.0  # Volumi 5 giorni >= 115% della media 60g
+
+
 # =====================================================================
-
-
+# FUNZIONI DI NOTIFICA & INVIO MAIL
+# =====================================================================
 def invia_telegram(canale_id, messaggio):
   """Invia il messaggio su Telegram formattato in Markdown."""
   if not TELEGRAM_TOKEN or not canale_id:
@@ -32,6 +46,47 @@ def invia_telegram(canale_id, messaggio):
     print(f"Errore invio Telegram: {e}")
 
 
+def invia_email_con_allegato(oggetto, corpo_testo, file_excel_path):
+  """Invia un'e-mail via SMTP Gmail allegando il file Excel generato."""
+  if not SENDER_EMAIL or not APP_PASSWORD or not RECEIVER_EMAIL:
+    print(
+        "⚠️ Credenziali E-mail non configurate (SENDER_EMAIL / APP_PASSWORD)."
+        " Saltato invio mail."
+    )
+    return
+
+  msg = MIMEMultipart()
+  msg["From"] = SENDER_EMAIL
+  msg["To"] = RECEIVER_EMAIL
+  msg["Subject"] = oggetto
+
+  # Corpo della mail
+  msg.attach(MIMEText(corpo_testo, "plain", "utf-8"))
+
+  # Allegato Excel
+  if os.path.exists(file_excel_path):
+    with open(file_excel_path, "rb") as f:
+      part = MIMEApplication(f.read(), Name=os.path.basename(file_excel_path))
+      part[
+          "Content-Disposition"
+      ] = f'attachment; filename="{os.path.basename(file_excel_path)}"'
+      msg.attach(part)
+
+  try:
+    print(f"📧 Invio e-mail in corso a {RECEIVER_EMAIL}...")
+    server = smtplib.SMTP("smtp.gmail.com", 587)
+    server.starttls()
+    server.login(SENDER_EMAIL, APP_PASSWORD)
+    server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
+    server.quit()
+    print("✅ E-mail inviata con successo!")
+  except Exception as e:
+    print(f"❌ Errore durante l'invio dell'e-mail: {e}")
+
+
+# =====================================================================
+# CALCOLI ANALISI TECNICA & FONDAMENTALE
+# =====================================================================
 def calcola_rsi(chiusure, periodi=14):
   """Calcola l'indicatore RSI standard a 14 periodi."""
   delta = chiusure.diff()
@@ -75,24 +130,23 @@ def verifica_fondamentali_sani(ticker_obj):
     info = ticker_obj.info
     if not info:
       return True
-
     debt_to_equity = info.get("debtToEquity", None)
     if debt_to_equity is not None and debt_to_equity > 250:
       return False
-
     earnings_growth = info.get("earningsGrowth", None)
     revenue_growth = info.get("revenueGrowth", None)
-
     if earnings_growth is not None and earnings_growth < -0.20:
       return False
     if revenue_growth is not None and revenue_growth < -0.20:
       return False
-
     return True
   except Exception:
     return True
 
 
+# =====================================================================
+# MAIN FUNCTION
+# =====================================================================
 def main():
   tickers = ottieni_sp500()
   print(
@@ -129,13 +183,11 @@ def main():
     try:
       ticker_str = str(ticker)
       chiusure = df_close[ticker].dropna()
-
       if len(chiusure) < 200:
         continue
 
       prezzo_attuale = float(chiusure.iloc[-1])
       massimo_52w = float(chiusure.max())
-
       storno_pct = ((massimo_52w - prezzo_attuale) / massimo_52w) * 100
 
       # FILTRO 1: Storno minimo del 15% dai max 52W
@@ -163,7 +215,6 @@ def main():
 
       rsi_serie = calcola_rsi(chiusure)
       rsi_attuale = float(rsi_serie.iloc[-1])
-
       sma_200 = float(chiusure.rolling(window=200).mean().iloc[-1])
       is_bear_market = prezzo_attuale < sma_200
 
@@ -175,6 +226,7 @@ def main():
           "is_bear": is_bear_market,
           "rvol_5d": rvol_5d_pct,
       })
+
     except Exception:
       continue
 
@@ -184,30 +236,72 @@ def main():
   )
 
   if not candidati:
-    invia_telegram(
-        CANALE_ACCUMULAZIONE_ID,
+    msg_vuoto = (
         "ℹ️ **Smart Money Radar**: Nessun titolo S&P 500 in storno > 15%"
         " presenta accumulazione di volumi (VOL 1W >= 115%) nella sessione"
-        " odierna.",
+        " odierna."
     )
+    invia_telegram(CANALE_ACCUMULAZIONE_ID, msg_vuoto)
     return
 
   candidati_ordinati = sorted(
       candidati, key=lambda x: x["rvol_5d"], reverse=True
   )
 
+  # =====================================================================
+  # GENERAZIONE FILE EXCEL
+  # =====================================================================
+  data_odierna = datetime.now().strftime("%Y-%m-%d")
+  excel_filename = f"Report_Accumulazione_{data_odierna}.xlsx"
+
+  excel_data = []
+  for c in candidati_ordinati:
+    stato_trend = (
+        "🔴 BEAR TREND (Sotto SMA200)"
+        if c["is_bear"]
+        else "🟢 BULL TREND (Sopra SMA200)"
+    )
+    condizione_rsi = (
+        "Ipervenduto (<30)" if c["rsi"] < 30 else "Neutro/Normale"
+    )
+
+    excel_data.append({
+        "Ticker": c["ticker"],
+        "Trend Market": stato_trend,
+        "Prezzo Attuale ($)": round(c["prezzo"], 2),
+        "Volumi 1W (% rispetto media 60g)": round(c["rvol_5d"], 1),
+        "Storno dai Max 52W (%)": round(c["storno"], 1),
+        "RSI (14)": round(c["rsi"], 1),
+        "Stato RSI": condizione_rsi,
+    })
+
+  df_excel = pd.DataFrame(excel_data)
+
+  # Salvataggio in formato Excel
+  try:
+    with pd.ExcelWriter(excel_filename, engine="openpyxl") as writer:
+      df_excel.to_excel(writer, sheet_name="Accumulazione", index=False)
+    print(f"📊 File Excel generato con successo: {excel_filename}")
+  except Exception as e:
+    print(f"❌ Errore durante la creazione del file Excel: {e}")
+
+  # =====================================================================
+  # FORMATTAZIONE E INVIO MESSAGGIO TELEGRAM & E-MAIL
+  # =====================================================================
   dips_bull_market = []
   bear_market_watchlist = []
+  corpo_email_testo = (
+      f"Smart Money Radar - Report Accumulazione del {data_odierna}\n\n"
+  )
 
   for c in candidati_ordinati:
     info_vol = f"VOL 1W: {c['rvol_5d']:.0f}%"
     info_storno = f"-{c['storno']:.1f}% dai max"
-
-    # FORMATTAZIONE RSI (Grassetto ed evidenziazione se < 30)
-    if c["rsi"] < 30:
-      info_rsi = f"**RSI: {c['rsi']:.0f} (Ipervenduto)**"
-    else:
-      info_rsi = f"RSI: {c['rsi']:.0f}"
+    info_rsi = (
+        f"**RSI: {c['rsi']:.0f} (Ipervenduto)**"
+        if c["rsi"] < 30
+        else f"RSI: {c['rsi']:.0f}"
+    )
 
     if not c["is_bear"]:
       riga_str = (
@@ -223,7 +317,6 @@ def main():
       bear_market_watchlist.append(riga_str)
 
   righe = ["📡 **SMART MONEY RADAR - REPORT ACCUMULAZIONE**\n"]
-
   if dips_bull_market:
     righe.append("🟢 **ACCUMULAZIONE IN BULL TREND (Sopra SMA200)**")
     righe.extend(dips_bull_market)
@@ -233,6 +326,7 @@ def main():
     righe.append("🔴 **ACCUMULAZIONE IN BEAR TREND (Sotto SMA200)**")
     righe.extend(bear_market_watchlist)
 
+  # Invio Telegram a blocchi
   msg = ""
   for r in righe:
     if len(msg) + len(r) + 1 > 3800:
@@ -242,6 +336,19 @@ def main():
       msg += r + "\n"
   if msg:
     invia_telegram(CANALE_ACCUMULAZIONE_ID, msg)
+
+  # Preparazione e invio E-Mail con allegato Excel
+  corpo_email_testo += "\n".join(righe).replace("**", "")
+  corpo_email_testo += (
+      "\n\nTrovi in allegato il report in formato Excel completo di tutte le"
+      " metriche."
+  )
+
+  invia_email_con_allegato(
+      oggetto=f"📈 Smart Money Radar Report - {data_odierna}",
+      corpo_testo=corpo_email_testo,
+      file_excel_path=excel_filename,
+  )
 
 
 if __name__ == "__main__":
