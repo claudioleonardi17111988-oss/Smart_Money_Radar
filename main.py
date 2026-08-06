@@ -2,9 +2,9 @@ import email
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+import os
 import smtplib
 from datetime import datetime
-import os
 import pandas as pd
 import requests
 import yfinance as yf
@@ -120,28 +120,42 @@ def ottieni_sp500():
     ]
 
 
-def verifica_fondamentali_sani(ticker_obj):
-  """Filtri di Bilancio:
+def ottieni_dati_azienda(ticker_obj, ticker_str):
+  """Verifica la salute di bilancio dell'azienda e recupera il nome esteso.
 
-  - Debito sostenibile (Debt/Equity < 250%)
-  - Utili e Ricavi non in crollo sistemico (> -20%)
+  In caso di errore nel recupero del nome, restituisce comunque il solo ticker.
   """
+  nome_azienda = ""
+  is_sano = True
+
   try:
     info = ticker_obj.info
-    if not info:
-      return True
-    debt_to_equity = info.get("debtToEquity", None)
-    if debt_to_equity is not None and debt_to_equity > 250:
-      return False
-    earnings_growth = info.get("earningsGrowth", None)
-    revenue_growth = info.get("revenueGrowth", None)
-    if earnings_growth is not None and earnings_growth < -0.20:
-      return False
-    if revenue_growth is not None and revenue_growth < -0.20:
-      return False
-    return True
-  except Exception:
-    return True
+    if info:
+      # Tenta di estrarre il nome esteso della societa'
+      nome_azienda = info.get("shortName") or info.get("longName") or ""
+
+      # Filtro Debito / Capitale (< 250%)
+      debt_to_equity = info.get("debtToEquity", None)
+      if debt_to_equity is not None and debt_to_equity > 250:
+        is_sano = False
+
+      # Filtro Crescita Utili o Ricavi (> -20%)
+      earnings_growth = info.get("earningsGrowth", None)
+      revenue_growth = info.get("revenueGrowth", None)
+      if earnings_growth is not None and earnings_growth < -0.20:
+        is_sano = False
+      if revenue_growth is not None and revenue_growth < -0.20:
+        is_sano = False
+  except Exception as e:
+    print(f"⚠️ Impossibile verificare info complete per {ticker_str}: {e}")
+    is_sano = True  # In caso di errore API, non blocca lo script
+
+  # Se il nome esteso esiste, formatta 'TICKER - Nome', altrimenti solo 'TICKER'
+  ticker_display = (
+      f"{ticker_str} - {nome_azienda}" if nome_azienda else ticker_str
+  )
+
+  return is_sano, ticker_display
 
 
 # =====================================================================
@@ -208,9 +222,11 @@ def main():
       if rvol_5d_pct < SOGLIA_VOLUMI_SETTIMANA:
         continue
 
-      # FILTRO 3: Bilanci sani
+      # FILTRO 3: Bilanci sani + Recupero nome esteso
       t_obj = yf.Ticker(ticker_str)
-      if not verifica_fondamentali_sani(t_obj):
+      is_sano, ticker_display = ottieni_dati_azienda(t_obj, ticker_str)
+
+      if not is_sano:
         continue
 
       rsi_serie = calcola_rsi(chiusure)
@@ -219,14 +235,14 @@ def main():
       is_bear_market = prezzo_attuale < sma_200
 
       candidati.append({
-          "ticker": ticker_str,
+          "ticker_raw": ticker_str,
+          "ticker_display": ticker_display,
           "prezzo": prezzo_attuale,
           "rsi": rsi_attuale,
           "storno": storno_pct,
           "is_bear": is_bear_market,
           "rvol_5d": rvol_5d_pct,
       })
-
     except Exception:
       continue
 
@@ -253,8 +269,8 @@ def main():
   # =====================================================================
   data_odierna = datetime.now().strftime("%Y-%m-%d")
   excel_filename = f"Report_Accumulazione_{data_odierna}.xlsx"
-
   excel_data = []
+
   for c in candidati_ordinati:
     stato_trend = (
         "🔴 BEAR TREND (Sotto SMA200)"
@@ -289,7 +305,7 @@ def main():
         )
 
     excel_data.append({
-        "Ticker": c["ticker"],
+        "Ticker": c["ticker_display"],
         "Trend Market": stato_trend,
         "Prezzo Attuale ($)": round(c["prezzo"], 2),
         "Volumi 1W (% rispetto media 60g)": round(c["rvol_5d"] / 100, 4),
@@ -329,13 +345,13 @@ def main():
 
     if not c["is_bear"]:
       riga_str = (
-          f"• 🟢 **{c['ticker']}** (${c['prezzo']:.1f} | {info_vol} |"
+          f"• 🟢 **{c['ticker_raw']}** (${c['prezzo']:.1f} | {info_vol} |"
           f" {info_storno} | {info_rsi})"
       )
       dips_bull_market.append(riga_str)
     else:
       riga_str = (
-          f"• 🔴 **{c['ticker']}** (${c['prezzo']:.1f} | {info_vol} |"
+          f"• 🔴 **{c['ticker_raw']}** (${c['prezzo']:.1f} | {info_vol} |"
           f" {info_storno} | {info_rsi})"
       )
       bear_market_watchlist.append(riga_str)
