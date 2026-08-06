@@ -13,6 +13,8 @@ jobs:
     steps:
     - name: Scarica il codice della repository
       uses: actions/checkout@v4
+      with:
+        repository: ${{ github.repository }}
 
     - name: Configura ambiente Python
       uses: actions/setup-python@v5
