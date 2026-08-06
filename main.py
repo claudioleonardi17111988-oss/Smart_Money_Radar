@@ -1,3 +1,98 @@
+from datetime import datetime
+import os
+import pandas as pd
+import requests
+import yfinance as yf
+
+# =====================================================================
+# CONFIGURAZIONE TELEGRAM & PARAMETRI RADAR
+# =====================================================================
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+CANALE_ACCUMULAZIONE_ID = os.environ.get(
+    "CANALE_ACCUMULAZIONE_ID", "-1003454283658"
+)
+
+SOGLIA_STORNO_MINIMA = 15.0  # Storno dai max a 52W >= 15%
+SOGLIA_VOLUMI_SETTIMANA = 115.0  # Volumi 5 giorni >= 115% della media 60g
+# =====================================================================
+
+
+def invia_telegram(canale_id, messaggio):
+  """Invia il messaggio su Telegram formattato in Markdown."""
+  if not TELEGRAM_TOKEN or not canale_id:
+    print("⚠️ Telegram non configurato. Stampa a video del messaggio:")
+    print(messaggio)
+    return
+  url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+  payload = {"chat_id": canale_id, "text": messaggio, "parse_mode": "Markdown"}
+  try:
+    r = requests.post(url, json=payload, timeout=10)
+    print(f"Esito invio Telegram: {r.status_code}")
+  except Exception as e:
+    print(f"Errore invio Telegram: {e}")
+
+
+def calcola_rsi(chiusure, periodi=14):
+  """Calcola l'indicatore RSI standard a 14 periodi."""
+  delta = chiusure.diff()
+  guadagno = (delta.where(delta > 0, 0)).rolling(window=periodi).mean()
+  perdita = (-delta.where(delta < 0, 0)).rolling(window=periodi).mean()
+  rs = guadagno / perdita
+  return 100 - (100 / (1 + rs))
+
+
+def ottieni_sp500():
+  """Scarica i ticker correnti dell'indice S&P 500."""
+  url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
+  try:
+    df = pd.read_csv(url)
+    return df["Symbol"].str.replace(".", "-", regex=False).tolist()
+  except Exception as e:
+    print(f"⚠️ Errore scaricamento CSV S&P 500: {e}. Uso lista di backup.")
+    return [
+        "AAPL",
+        "MSFT",
+        "GOOGL",
+        "AMZN",
+        "NVDA",
+        "META",
+        "BRK-B",
+        "ACN",
+        "ADBE",
+        "CRM",
+        "NKE",
+        "ZTS",
+    ]
+
+
+def verifica_fondamentali_sani(ticker_obj):
+  """Filtri di Bilancio:
+
+  - Debito sostenibile (Debt/Equity < 250%)
+  - Utili e Ricavi non in crollo sistemico (> -20%)
+  """
+  try:
+    info = ticker_obj.info
+    if not info:
+      return True
+
+    debt_to_equity = info.get("debtToEquity", None)
+    if debt_to_equity is not None and debt_to_equity > 250:
+      return False
+
+    earnings_growth = info.get("earningsGrowth", None)
+    revenue_growth = info.get("revenueGrowth", None)
+
+    if earnings_growth is not None and earnings_growth < -0.20:
+      return False
+    if revenue_growth is not None and revenue_growth < -0.20:
+      return False
+
+    return True
+  except Exception:
+    return True
+
+
 def main():
   tickers = ottieni_sp500()
   print(
@@ -147,3 +242,7 @@ def main():
       msg += r + "\n"
   if msg:
     invia_telegram(CANALE_ACCUMULAZIONE_ID, msg)
+
+
+if __name__ == "__main__":
+  main()
