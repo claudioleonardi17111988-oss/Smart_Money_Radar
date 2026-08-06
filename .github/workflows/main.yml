@@ -1,0 +1,31 @@
+name: Smart Money Radar Execution
+
+on:
+  schedule:
+    # Esegue da lunedì a venerdì alle 22:00 UTC (dopo la chiusura di Wall Street)
+    - cron: '0 22 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  run-radar:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Scarica il codice della repository
+      uses: actions/checkout@v4
+
+    - name: Configura ambiente Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Installa dipendenze necessarie
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas yfinance requests
+
+    - name: Esegui Smart Money Radar
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        CANALE_ACCUMULAZIONE_ID: ${{ secrets.CANALE_ACCUMULAZIONE_ID }}
+      run: python main.py
