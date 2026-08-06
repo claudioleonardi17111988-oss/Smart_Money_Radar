@@ -269,8 +269,8 @@ def main():
         "Ticker": c["ticker"],
         "Trend Market": stato_trend,
         "Prezzo Attuale ($)": round(c["prezzo"], 2),
-        "Volumi 1W (% rispetto media 60g)": round(c["rvol_5d"], 1),
-        "Storno dai Max 52W (%)": round(c["storno"], 1),
+        "Volumi 1W (% rispetto media 60g)": round(c["rvol_5d"] / 100, 4),
+        "Storno dai Max 52W (%)": round(c["storno"] / 100, 4),
         "RSI (14)": round(c["rsi"], 1),
         "Stato RSI": condizione_rsi,
     })
