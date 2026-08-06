@@ -265,6 +265,29 @@ def main():
         "Ipervenduto (<30)" if c["rsi"] < 30 else "Neutro/Normale"
     )
 
+    # LOGICA DI VALUTAZIONE E SUGGERIMENTO
+    if c["is_bear"]:
+      if c["rsi"] <= 30:
+        valutazione = (
+            "🟡 Ipervenduto in Bear Trend: possibile inizio accumulo/PAC"
+            " prudente"
+        )
+      else:
+        valutazione = (
+            "⚠️ Pericoloso: Bear Trend senza ipervenduto, attendere storno o"
+            " stabilizzazione"
+        )
+    else:
+      if c["rsi"] <= 30:
+        valutazione = (
+            "🟢 Ottimo setup: Dip in Bull Trend + Ipervenduto (Ingresso/PAC"
+            " favorito)"
+        )
+      else:
+        valutazione = (
+            "🔵 Storno sano in Bull Trend: monitorare o primo tranche PAC"
+        )
+
     excel_data.append({
         "Ticker": c["ticker"],
         "Trend Market": stato_trend,
@@ -273,6 +296,7 @@ def main():
         "Storno dai Max 52W (%)": round(c["storno"] / 100, 4),
         "RSI (14)": round(c["rsi"], 1),
         "Stato RSI": condizione_rsi,
+        "Suggerimento / Action": valutazione,
     })
 
   df_excel = pd.DataFrame(excel_data)
@@ -341,7 +365,7 @@ def main():
   corpo_email_testo += "\n".join(righe).replace("**", "")
   corpo_email_testo += (
       "\n\nTrovi in allegato il report in formato Excel completo di tutte le"
-      " metriche."
+      " metriche e suggerimenti operativi."
   )
 
   invia_email_con_allegato(
