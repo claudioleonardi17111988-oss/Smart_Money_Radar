@@ -1,10 +1,11 @@
+from datetime import datetime
 import email
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from io import StringIO
 import os
 import smtplib
-from datetime import datetime
 import pandas as pd
 import requests
 import yfinance as yf
@@ -17,12 +18,9 @@ CANALE_ACCUMULAZIONE_ID = os.environ.get(
     "CANALE_ACCUMULAZIONE_ID", "-1003454283658"
 )
 
-# Parametri per invio E-Mail SMTP (Gmail)
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
 APP_PASSWORD = os.environ.get("APP_PASSWORD")
-RECEIVER_EMAIL = os.environ.get(
-    "RECEIVER_EMAIL", SENDER_EMAIL
-)  # Se non specificato, invia a se stesso
+RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL", SENDER_EMAIL)
 
 SOGLIA_STORNO_MINIMA = 15.0  # Storno dai max a 52W >= 15%
 SOGLIA_VOLUMI_SETTIMANA = 115.0  # Volumi 5 giorni >= 115% della media 60g
@@ -54,16 +52,13 @@ def invia_email_con_allegato(oggetto, corpo_testo, file_excel_path):
         " Saltato invio mail."
     )
     return
-
   msg = MIMEMultipart()
   msg["From"] = SENDER_EMAIL
   msg["To"] = RECEIVER_EMAIL
   msg["Subject"] = oggetto
 
-  # Corpo della mail
   msg.attach(MIMEText(corpo_testo, "plain", "utf-8"))
 
-  # Allegato Excel
   if os.path.exists(file_excel_path):
     with open(file_excel_path, "rb") as f:
       part = MIMEApplication(f.read(), Name=os.path.basename(file_excel_path))
@@ -85,7 +80,7 @@ def invia_email_con_allegato(oggetto, corpo_testo, file_excel_path):
 
 
 # =====================================================================
-# CALCOLI ANALISI TECNICA & FONDAMENTALE
+# CALCOLI ANALISI TECNICA & RECUPERO TICKER
 # =====================================================================
 def calcola_rsi(chiusure, periodi=14):
   """Calcola l'indicatore RSI standard a 14 periodi."""
@@ -96,50 +91,107 @@ def calcola_rsi(chiusure, periodi=14):
   return 100 - (100 / (1 + rs))
 
 
-def ottieni_sp500():
-  """Scarica i ticker correnti dell'indice S&P 500."""
-  url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
+def _fetch_wikipedia_table(url):
+  headers = {
+      "User-Agent": (
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
+          " like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      )
+  }
+  response = requests.get(url, headers=headers)
+  response.raise_for_status()
+  return pd.read_html(StringIO(response.text))
+
+
+def ottieni_ticker_usa():
+  """Scarica e unisce i ticker di S&P 500, Nasdaq 100 e S&P MidCap 400 senza duplicati."""
+  tickers = set()
+
+  # 1. S&P 500
   try:
-    df = pd.read_csv(url)
-    return df["Symbol"].str.replace(".", "-", regex=False).tolist()
+    url_sp = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
+    df_sp = pd.read_csv(url_sp)
+    tickers.update(
+        df_sp["Symbol"].str.replace(".", "-", regex=False).str.strip().tolist()
+    )
+    print("✅ S&P 500 caricato con successo.")
   except Exception as e:
-    print(f"⚠️ Errore scaricamento CSV S&P 500: {e}. Uso lista di backup.")
-    return [
-        "AAPL",
-        "MSFT",
-        "GOOGL",
-        "AMZN",
-        "NVDA",
-        "META",
-        "BRK-B",
-        "ACN",
-        "ADBE",
-        "CRM",
-        "NKE",
-        "ZTS",
-    ]
+    print(f"⚠️ Errore caricamento S&P 500: {e}")
+
+  # 2. NASDAQ 100
+  try:
+    url_nasdaq = "https://en.wikipedia.org/wiki/Nasdaq-100"
+    tables = _fetch_wikipedia_table(url_nasdaq)
+    for df in tables:
+      col = next(
+          (
+              c
+              for c in df.columns
+              if str(c).lower() in ["ticker", "symbol", "company stock symbol"]
+          ),
+          None,
+      )
+      if col:
+        raw_nasdaq = (
+            df[col]
+            .dropna()
+            .astype(str)
+            .str.replace(".", "-", regex=False)
+            .str.strip()
+            .tolist()
+        )
+        tickers.update(raw_nasdaq)
+        print("✅ Nasdaq 100 caricato con successo.")
+        break
+  except Exception as e:
+    print(f"⚠️ Errore caricamento Nasdaq 100: {e}")
+
+  # 3. S&P MidCap 400
+  try:
+    url_midcap = "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies"
+    tables = _fetch_wikipedia_table(url_midcap)
+    for df in tables:
+      col = next(
+          (
+              c
+              for c in df.columns
+              if str(c).lower() in ["symbol", "ticker", "company stock symbol"]
+          ),
+          None,
+      )
+      if col:
+        raw_midcap = (
+            df[col]
+            .dropna()
+            .astype(str)
+            .str.replace(".", "-", regex=False)
+            .str.strip()
+            .tolist()
+        )
+        tickers.update(raw_midcap)
+        print("✅ S&P MidCap 400 caricato con successo.")
+        break
+  except Exception as e:
+    print(f"⚠️ Errore caricamento S&P MidCap 400: {e}")
+
+  lista_finale = list(tickers)
+  print(f"🎯 Totale titoli unici da analizzare: {len(lista_finale)}")
+  return lista_finale
 
 
 def ottieni_dati_azienda(ticker_obj, ticker_str):
-  """Verifica la salute di bilancio dell'azienda e recupera il nome esteso.
-
-  In caso di errore nel recupero del nome, restituisce comunque il solo ticker.
-  """
+  """Verifica la salute di bilancio dell'azienda e recupera il nome esteso."""
   nome_azienda = ""
   is_sano = True
-
   try:
     info = ticker_obj.info
     if info:
-      # Tenta di estrarre il nome esteso della societa'
       nome_azienda = info.get("shortName") or info.get("longName") or ""
 
-      # Filtro Debito / Capitale (< 250%)
       debt_to_equity = info.get("debtToEquity", None)
       if debt_to_equity is not None and debt_to_equity > 250:
         is_sano = False
 
-      # Filtro Crescita Utili o Ricavi (> -20%)
       earnings_growth = info.get("earningsGrowth", None)
       revenue_growth = info.get("revenueGrowth", None)
       if earnings_growth is not None and earnings_growth < -0.20:
@@ -148,13 +200,11 @@ def ottieni_dati_azienda(ticker_obj, ticker_str):
         is_sano = False
   except Exception as e:
     print(f"⚠️ Impossibile verificare info complete per {ticker_str}: {e}")
-    is_sano = True  # In caso di errore API, non blocca lo script
+    is_sano = True
 
-  # Se il nome esteso esiste, formatta 'TICKER - Nome', altrimenti solo 'TICKER'
   ticker_display = (
       f"{ticker_str} - {nome_azienda}" if nome_azienda else ticker_str
   )
-
   return is_sano, ticker_display
 
 
@@ -162,13 +212,13 @@ def ottieni_dati_azienda(ticker_obj, ticker_str):
 # MAIN FUNCTION
 # =====================================================================
 def main():
-  tickers = ottieni_sp500()
-  print(
-      f"🚀 Avvio Smart Money Radar su {len(tickers)} titoli dell'S&P 500..."
-  )
+  tickers = ottieni_ticker_usa()
+  print(f"🚀 Avvio Smart Money Radar su {len(tickers)} titoli USA...")
 
   try:
-    df_raw = yf.download(tickers, period="1y", auto_adjust=True, progress=False)
+    df_raw = yf.download(
+        tickers, period="1y", auto_adjust=True, progress=False
+    )
   except Exception as e:
     print(f"Errore critico durante il download dati bulk: {e}")
     invia_telegram(
@@ -192,7 +242,6 @@ def main():
     df_volume = None
 
   candidati = []
-
   for ticker in df_close.columns:
     try:
       ticker_str = str(ticker)
@@ -225,7 +274,6 @@ def main():
       # FILTRO 3: Bilanci sani + Recupero nome esteso
       t_obj = yf.Ticker(ticker_str)
       is_sano, ticker_display = ottieni_dati_azienda(t_obj, ticker_str)
-
       if not is_sano:
         continue
 
@@ -253,9 +301,8 @@ def main():
 
   if not candidati:
     msg_vuoto = (
-        "ℹ️ **Smart Money Radar**: Nessun titolo S&P 500 in storno > 15%"
-        " presenta accumulazione di volumi (VOL 1W >= 115%) nella sessione"
-        " odierna."
+        "ℹ️ **Smart Money Radar**: Nessun titolo in storno > 15% presenta"
+        " accumulazione di volumi (VOL 1W >= 115%) nella sessione odierna."
     )
     invia_telegram(CANALE_ACCUMULAZIONE_ID, msg_vuoto)
     return
@@ -264,9 +311,7 @@ def main():
       candidati, key=lambda x: x["rvol_5d"], reverse=True
   )
 
-  # =====================================================================
   # GENERAZIONE FILE EXCEL
-  # =====================================================================
   data_odierna = datetime.now().strftime("%Y-%m-%d")
   excel_filename = f"Report_Accumulazione_{data_odierna}.xlsx"
   excel_data = []
@@ -281,7 +326,6 @@ def main():
         "Ipervenduto (<30)" if c["rsi"] < 30 else "Neutro/Normale"
     )
 
-    # LOGICA DI VALUTAZIONE E SUGGERIMENTO
     if c["is_bear"]:
       if c["rsi"] <= 30:
         valutazione = (
@@ -316,8 +360,6 @@ def main():
     })
 
   df_excel = pd.DataFrame(excel_data)
-
-  # Salvataggio in formato Excel
   try:
     with pd.ExcelWriter(excel_filename, engine="openpyxl") as writer:
       df_excel.to_excel(writer, sheet_name="Accumulazione", index=False)
@@ -325,9 +367,7 @@ def main():
   except Exception as e:
     print(f"❌ Errore durante la creazione del file Excel: {e}")
 
-  # =====================================================================
-  # FORMATTAZIONE E INVIO MESSAGGIO TELEGRAM & E-MAIL
-  # =====================================================================
+  # FORMATTAZIONE E INVIO TELEGRAM & EMAIL
   dips_bull_market = []
   bear_market_watchlist = []
   corpo_email_testo = (
@@ -361,12 +401,10 @@ def main():
     righe.append("🟢 **ACCUMULAZIONE IN BULL TREND (Sopra SMA200)**")
     righe.extend(dips_bull_market)
     righe.append("")
-
   if bear_market_watchlist:
     righe.append("🔴 **ACCUMULAZIONE IN BEAR TREND (Sotto SMA200)**")
     righe.extend(bear_market_watchlist)
 
-  # Invio Telegram a blocchi
   msg = ""
   for r in righe:
     if len(msg) + len(r) + 1 > 3800:
@@ -377,13 +415,11 @@ def main():
   if msg:
     invia_telegram(CANALE_ACCUMULAZIONE_ID, msg)
 
-  # Preparazione e invio E-Mail con allegato Excel
   corpo_email_testo += "\n".join(righe).replace("**", "")
   corpo_email_testo += (
       "\n\nTrovi in allegato il report in formato Excel completo di tutte le"
       " metriche e suggerimenti operativi."
   )
-
   invia_email_con_allegato(
       oggetto=f"📈 Smart Money Radar Report - {data_odierna}",
       corpo_testo=corpo_email_testo,
