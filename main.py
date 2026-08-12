@@ -277,6 +277,12 @@ def main():
       if not is_sano:
         continue
 
+      # CALCOLO SUPPORTI E RESISTENZE
+      minimo_60g = float(chiusure.iloc[-60:].min())
+      distanza_supporto_pct = (
+          (prezzo_attuale - minimo_60g) / minimo_60g
+      ) * 100
+
       rsi_serie = calcola_rsi(chiusure)
       rsi_attuale = float(rsi_serie.iloc[-1])
       sma_200 = float(chiusure.rolling(window=200).mean().iloc[-1])
@@ -290,6 +296,9 @@ def main():
           "storno": storno_pct,
           "is_bear": is_bear_market,
           "rvol_5d": rvol_5d_pct,
+          "supporto_60g": minimo_60g,
+          "dist_supp_pct": distanza_supporto_pct,
+          "resistenza_52w": massimo_52w,
       })
     except Exception:
       continue
@@ -311,7 +320,7 @@ def main():
       candidati, key=lambda x: x["rvol_5d"], reverse=True
   )
 
-  # GENERAZIONE FILE EXCEL
+  # GENERAZIONE FILE EXCEL CON LIVELLI CHIAVE
   data_odierna = datetime.now().strftime("%Y-%m-%d")
   excel_filename = f"Report_Accumulazione_{data_odierna}.xlsx"
   excel_data = []
@@ -352,7 +361,10 @@ def main():
         "Ticker": c["ticker_display"],
         "Trend Market": stato_trend,
         "Prezzo Attuale ($)": round(c["prezzo"], 2),
-        "Volumi 1W (% rispetto media 60g)": round(c["rvol_5d"] / 100, 4),
+        "Supporto 60G ($)": round(c["supporto_60g"], 2),
+        "Distanza da Supp. (%)": round(c["dist_supp_pct"] / 100, 4),
+        "Resistenza 52W ($)": round(c["resistenza_52w"], 2),
+        "Volumi 1W (% vs media 60g)": round(c["rvol_5d"] / 100, 4),
         "Storno dai Max 52W (%)": round(c["storno"] / 100, 4),
         "RSI (14)": round(c["rsi"], 1),
         "Stato RSI": condizione_rsi,
@@ -382,17 +394,18 @@ def main():
         if c["rsi"] < 30
         else f"RSI: {c['rsi']:.0f}"
     )
+    info_supp = f"Supp 60G: ${c['supporto_60g']:.1f} (+{c['dist_supp_pct']:.1f}%)"
 
     if not c["is_bear"]:
       riga_str = (
           f"• 🟢 **{c['ticker_raw']}** (${c['prezzo']:.1f} | {info_vol} |"
-          f" {info_storno} | {info_rsi})"
+          f" {info_storno} | {info_rsi} | {info_supp})"
       )
       dips_bull_market.append(riga_str)
     else:
       riga_str = (
           f"• 🔴 **{c['ticker_raw']}** (${c['prezzo']:.1f} | {info_vol} |"
-          f" {info_storno} | {info_rsi})"
+          f" {info_storno} | {info_rsi} | {info_supp})"
       )
       bear_market_watchlist.append(riga_str)
 
