@@ -187,11 +187,9 @@ def ottieni_dati_azienda(ticker_obj, ticker_str):
     info = ticker_obj.info
     if info:
       nome_azienda = info.get("shortName") or info.get("longName") or ""
-
       debt_to_equity = info.get("debtToEquity", None)
       if debt_to_equity is not None and debt_to_equity > 250:
         is_sano = False
-
       earnings_growth = info.get("earningsGrowth", None)
       revenue_growth = info.get("revenueGrowth", None)
       if earnings_growth is not None and earnings_growth < -0.20:
@@ -201,7 +199,6 @@ def ottieni_dati_azienda(ticker_obj, ticker_str):
   except Exception as e:
     print(f"⚠️ Impossibile verificare info complete per {ticker_str}: {e}")
     is_sano = True
-
   ticker_display = (
       f"{ticker_str} - {nome_azienda}" if nome_azienda else ticker_str
   )
@@ -214,7 +211,6 @@ def ottieni_dati_azienda(ticker_obj, ticker_str):
 def main():
   tickers = ottieni_ticker_usa()
   print(f"🚀 Avvio Smart Money Radar su {len(tickers)} titoli USA...")
-
   try:
     df_raw = yf.download(
         tickers, period="1y", auto_adjust=True, progress=False
@@ -277,16 +273,18 @@ def main():
       if not is_sano:
         continue
 
-      # CALCOLO SUPPORTI E RESISTENZE
+      # CALCOLO SUPPORTI, RESISTENZE & SMA200
       minimo_60g = float(chiusure.iloc[-60:].min())
       distanza_supporto_pct = (
           (prezzo_attuale - minimo_60g) / minimo_60g
       ) * 100
 
+      sma_200 = float(chiusure.rolling(window=200).mean().iloc[-1])
+      distanza_sma200_pct = ((prezzo_attuale - sma_200) / sma_200) * 100
+      is_bear_market = prezzo_attuale < sma_200
+
       rsi_serie = calcola_rsi(chiusure)
       rsi_attuale = float(rsi_serie.iloc[-1])
-      sma_200 = float(chiusure.rolling(window=200).mean().iloc[-1])
-      is_bear_market = prezzo_attuale < sma_200
 
       candidati.append({
           "ticker_raw": ticker_str,
@@ -299,6 +297,8 @@ def main():
           "supporto_60g": minimo_60g,
           "dist_supp_pct": distanza_supporto_pct,
           "resistenza_52w": massimo_52w,
+          "sma_200": sma_200,
+          "dist_sma200_pct": distanza_sma200_pct,
       })
     except Exception:
       continue
@@ -320,7 +320,7 @@ def main():
       candidati, key=lambda x: x["rvol_5d"], reverse=True
   )
 
-  # GENERAZIONE FILE EXCEL CON LIVELLI CHIAVE
+  # GENERAZIONE FILE EXCEL CON SMA200 E LIVELLI CHIAVE
   data_odierna = datetime.now().strftime("%Y-%m-%d")
   excel_filename = f"Report_Accumulazione_{data_odierna}.xlsx"
   excel_data = []
@@ -361,6 +361,8 @@ def main():
         "Ticker": c["ticker_display"],
         "Trend Market": stato_trend,
         "Prezzo Attuale ($)": round(c["prezzo"], 2),
+        "SMA 200 ($)": round(c["sma_200"], 2),
+        "Distanza da SMA200 (%)": round(c["dist_sma200_pct"] / 100, 4),
         "Supporto 60G ($)": round(c["supporto_60g"], 2),
         "Distanza da Supp. (%)": round(c["dist_supp_pct"] / 100, 4),
         "Resistenza 52W ($)": round(c["resistenza_52w"], 2),
@@ -396,16 +398,19 @@ def main():
     )
     info_supp = f"Supp 60G: ${c['supporto_60g']:.1f} (+{c['dist_supp_pct']:.1f}%)"
 
+    segno_sma = "+" if c["dist_sma200_pct"] >= 0 else ""
+    info_sma = f"SMA200: ${c['sma_200']:.1f} ({segno_sma}{c['dist_sma200_pct']:.1f}%)"
+
     if not c["is_bear"]:
       riga_str = (
           f"• 🟢 **{c['ticker_raw']}** (${c['prezzo']:.1f} | {info_vol} |"
-          f" {info_storno} | {info_rsi} | {info_supp})"
+          f" {info_storno} | {info_rsi} | {info_sma} | {info_supp})"
       )
       dips_bull_market.append(riga_str)
     else:
       riga_str = (
           f"• 🔴 **{c['ticker_raw']}** (${c['prezzo']:.1f} | {info_vol} |"
-          f" {info_storno} | {info_rsi} | {info_supp})"
+          f" {info_storno} | {info_rsi} | {info_sma} | {info_supp})"
       )
       bear_market_watchlist.append(riga_str)
 
