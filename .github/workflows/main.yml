@@ -26,7 +26,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install pandas yfinance requests openpyxl
 
-    - name: Esegui Smart Money Radar
+    # 1. Scansione automatica di tutto il mercato USA
+    - name: Esegui Smart Money Radar Globale
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         CANALE_ACCUMULAZIONE_ID: ${{ secrets.CANALE_ACCUMULAZIONE_ID }}
@@ -34,3 +35,13 @@ jobs:
         APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
         RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
       run: python main.py
+
+    # 2. Scansione del tuo Portafoglio Personale
+    - name: Esegui Monitor Portafoglio Personale
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        CANALE_ACCUMULAZIONE_ID: ${{ secrets.CANALE_ACCUMULAZIONE_ID }}
+        SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+        APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+        RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+      run: python portafoglio_personale.py
