@@ -28,6 +28,7 @@ MEI_TICKER_PORTAFOGLIO = [
     "APP",  # AppLovin
     "RDDT",  # Reddit
     "BBWI",  # Bath & Body Works
+    "CEG", "MARA", "ON", "VRT", "WMT", "CLS", "FIX", "NFLX", "NVDA", "QCOM", "NOW", "TDG", "VST", "EPAM", "ROL", "NVO", "AMTM", "BMY", "FCT.MI", "SOFI", "NU", "ZENA", "ADUR", "XYL"
     # Aggiungi qui i tuoi nuovi ticker tra virgolette separati da virgola
     # es: "AAPL", "NVDA", "MSFT"
 ]
