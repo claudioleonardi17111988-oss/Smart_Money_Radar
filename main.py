@@ -1,541 +1,603 @@
 from datetime import datetime
-import email
+import io
+import json
+import os
+import smtplib
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from io import StringIO
-import os
-import smtplib
+import warnings
 import numpy as np
+import openpyxl
+from openpyxl.styles import Alignment, Border, Font, PatternFill
+from openpyxl.utils.dataframe import dataframe_to_rows
 import pandas as pd
 import requests
 import yfinance as yf
 
+warnings.filterwarnings('ignore')
+
 # =====================================================================
-# CONFIGURAZIONE TELEGRAM, EMAIL & PARAMETRI RADAR
+# CONFIGURAZIONE E PARAMETRI MASTER
 # =====================================================================
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-CANALE_ACCUMULAZIONE_ID = os.environ.get(
-    "CANALE_ACCUMULAZIONE_ID", "-1003454283658"
+SENDER_EMAIL = os.environ.get('SENDER_EMAIL')
+APP_PASSWORD = os.environ.get('APP_PASSWORD')
+RECEIVER_EMAIL = os.environ.get('RECEIVER_EMAIL', SENDER_EMAIL)
+
+SOGLIA_STORNO_MINIMA = (
+    15.0  # Filtro base: il titolo deve essere in sconto di almeno il 15%
 )
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
-APP_PASSWORD = os.environ.get("APP_PASSWORD")
-RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL", SENDER_EMAIL)
-SOGLIA_STORNO_MINIMA = 15.0  # Storno dai max a 52W >= 15%
-SOGLIA_VOLUMI_SETTIMANA = 115.0  # Volumi 5 giorni >= 115% della media 60g
+
+STATE_FILE = 'master_screener_stato_precedente.json'
 
 
 # =====================================================================
-# FUNZIONI DI NOTIFICA & INVIO MAIL
+# 0. MEMORIA STORICA CAMBIAMENTI
 # =====================================================================
-def invia_telegram(canale_id, messaggio):
-  """Invia il messaggio su Telegram formattato in Markdown."""
-  if not TELEGRAM_TOKEN or not canale_id:
-    print("⚠️ Telegram non configurato. Stampa a video del messaggio:")
-    print(messaggio)
-    return
-  url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-  payload = {"chat_id": canale_id, "text": messaggio, "parse_mode": "Markdown"}
+def carica_stato_precedente():
+  if os.path.exists(STATE_FILE):
+    try:
+      with open(STATE_FILE, 'r', encoding='utf-8') as f:
+        return json.load(f)
+    except Exception:
+      return {}
+  return {}
+
+
+def salva_stato_attuale(df_res):
+  nuovo_stato = {}
+  for _, row in df_res.iterrows():
+    ticker = row['Ticker']
+    top10 = row['TOP 10 OCCASIONI']
+    verdetto = row['VERDETTO DEL CONSULENTE (AZIONE RAPIDA)']
+    nuovo_stato[ticker] = {'top10': top10, 'verdetto': verdetto}
+  with open(STATE_FILE, 'w', encoding='utf-8') as f:
+    json.dump(nuovo_stato, f, indent=4, ensure_ascii=False)
+
+
+# =====================================================================
+# 1. RECUPERO TICKER (S&P 500 + NASDAQ 100 + MIDCAP 400)
+# =====================================================================
+def _fetch_wikipedia_table(url):
+  headers = {
+      'User-Agent': (
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      )
+  }
+  response = requests.get(url, headers=headers, timeout=15)
+  return pd.read_html(io.StringIO(response.text))
+
+
+def ottieni_ticker_usa():
+  tickers = set()
   try:
-    r = requests.post(url, json=payload, timeout=10)
-    print(f"Esito invio Telegram: {r.status_code}")
-  except Exception as e:
-    print(f"Errore invio Telegram: {e}")
-
-
-def invia_email_con_allegato(oggetto, corpo_testo, file_excel_path):
-  """Invia un'e-mail via SMTP Gmail allegando il file Excel generato."""
-  if not SENDER_EMAIL or not APP_PASSWORD or not RECEIVER_EMAIL:
-    print(
-        "⚠️ Credenziali E-mail non configurate (SENDER_EMAIL / APP_PASSWORD)."
-        " Saltato invio mail."
+    df_sp = pd.read_csv(
+        'https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv'
     )
-    return
-  msg = MIMEMultipart()
-  msg["From"] = SENDER_EMAIL
-  msg["To"] = RECEIVER_EMAIL
-  msg["Subject"] = oggetto
-  msg.attach(MIMEText(corpo_testo, "plain", "utf-8"))
-
-  if os.path.exists(file_excel_path):
-    with open(file_excel_path, "rb") as f:
-      part = MIMEApplication(f.read(), Name=os.path.basename(file_excel_path))
-      part[
-          "Content-Disposition"
-      ] = f'attachment; filename="{os.path.basename(file_excel_path)}"'
-      msg.attach(part)
-
-  try:
-    print(f"📧 Invio e-mail in corso a {RECEIVER_EMAIL}...")
-    server = smtplib.SMTP("smtp.gmail.com", 587)
-    server.starttls()
-    server.login(SENDER_EMAIL, APP_PASSWORD)
-    server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
-    server.quit()
-    print("✅ E-mail inviata con successo!")
+    tickers.update(
+        df_sp['Symbol'].str.replace('.', '-', regex=False).str.strip().tolist()
+    )
   except Exception as e:
-    print(f"❌ Errore durante l'invio dell'e-mail: {e}")
+    print(f'Errore recupero S&P 500: {e}')
+  try:
+    tables = _fetch_wikipedia_table('https://en.wikipedia.org/wiki/Nasdaq-100')
+    for df in tables:
+      col = next(
+          (
+              c
+              for c in df.columns
+              if str(c).lower() in ['ticker', 'symbol', 'company stock symbol']
+          ),
+          None,
+      )
+      if col:
+        tickers.update(
+            df[col]
+            .dropna()
+            .astype(str)
+            .str.replace('.', '-', regex=False)
+            .str.strip()
+            .tolist()
+        )
+        break
+  except Exception as e:
+    print(f'Errore recupero Nasdaq 100: {e}')
+  try:
+    tables = _fetch_wikipedia_table(
+        'https://en.wikipedia.org/wiki/List_of_S%26P_400_companies'
+    )
+    for df in tables:
+      col = next(
+          (
+              c
+              for c in df.columns
+              if str(c).lower() in ['symbol', 'ticker', 'company stock symbol']
+          ),
+          None,
+      )
+      if col:
+        tickers.update(
+            df[col]
+            .dropna()
+            .astype(str)
+            .str.replace('.', '-', regex=False)
+            .str.strip()
+            .tolist()
+        )
+        break
+  except Exception as e:
+    print(f'Errore recupero S&P MidCap 400: {e}')
+  return list(tickers)
 
 
 # =====================================================================
-# CALCOLI ANALISI TECNICA AVANZATA
+# 2. MOTORE DI CALCOLO INDICATORI AVANZATI
 # =====================================================================
-def calcola_rsi(chiusure, periodi=14):
-  """Calcola l'indicatore RSI standard a 14 periodi."""
-  delta = chiusure.diff()
-  guadagno = (delta.where(delta > 0, 0)).rolling(window=periodi).mean()
-  perdita = (-delta.where(delta < 0, 0)).rolling(window=periodi).mean()
-  rs = guadagno / perdita
+def calcola_rsi(series, period=14):
+  delta = series.diff()
+  gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+  loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+  rs = gain / (loss + 1e-10)
   return 100 - (100 / (1 + rs))
 
 
 def calcola_obv(chiusure, volumi):
-  """Calcola l'On-Balance Volume (OBV)."""
-  obv = (np.sign(chiusure.diff()) * volumi).fillna(0).cumsum()
-  return obv
+  return (np.sign(chiusure.diff()) * volumi).fillna(0).cumsum()
 
 
 def calcola_cmf(massimi, minimi, chiusure, volumi, periodi=20):
-  """Calcola il Chaikin Money Flow (CMF) a 20 periodi."""
-  mf_multiplier = (
-      (chiusure - minimi) - (massimi - chiusure)
-  ) / (massimi - minimi)
-  mf_multiplier = mf_multiplier.fillna(0)
+  mf_multiplier = ((chiusure - minimi) - (massimi - chiusure)) / (
+      massimi - minimi + 1e-10
+  )
   mf_volume = mf_multiplier * volumi
-  cmf = mf_volume.rolling(window=periodi).sum() / volumi.rolling(
-      window=periodi
-  ).sum()
-  return cmf
+  return mf_volume.rolling(window=periodi).sum() / (
+      volumi.rolling(window=periodi).sum() + 1e-10
+  )
 
 
 def calcola_close_location_value(chiusura, minimo, massimo):
-  """Misura dove ha chiuso il prezzo rispetto al range giornaliero (0.0 = sui minimi, 1.0 = sui massimi)."""
-  range_giornaliero = massimo - minimo
-  if range_giornaliero == 0:
+  rng = massimo - minimo
+  if rng == 0:
     return 0.5
-  return (chiusura - minimo) / range_giornaliero
+  return (chiusura - minimo) / rng
 
 
 def calcola_volume_poc(chiusure, volumi, periodi=60, bins=10):
-  """Calcola approssimativamente il Point of Control (POC) dei volumi negli ultimi N giorni."""
   if len(chiusure) < periodi:
     return float(chiusure.iloc[-1])
   sub_close = chiusure.iloc[-periodi:]
   sub_vol = volumi.iloc[-periodi:]
   counts, bin_edges = np.histogram(sub_close, bins=bins, weights=sub_vol)
   max_idx = np.argmax(counts)
-  poc_price = (bin_edges[max_idx] + bin_edges[max_idx + 1]) / 2.0
-  return float(poc_price)
+  return float((bin_edges[max_idx] + bin_edges[max_idx + 1]) / 2.0)
 
 
-def _fetch_wikipedia_table(url):
-  headers = {
-      "User-Agent": (
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
-          " like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      )
-  }
-  response = requests.get(url, headers=headers)
-  response.raise_for_status()
-  return pd.read_html(StringIO(response.text))
-
-
-def ottieni_ticker_usa():
-  """Scarica e unisce i ticker di S&P 500, Nasdaq 100 e S&P MidCap 400 senza duplicati."""
-  tickers = set()
-  # 1. S&P 500
-  try:
-    url_sp = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
-    df_sp = pd.read_csv(url_sp)
-    tickers.update(
-        df_sp["Symbol"].str.replace(".", "-", regex=False).str.strip().tolist()
-    )
-    print("✅ S&P 500 caricato con successo.")
-  except Exception as e:
-    print(f"⚠️ Errore caricamento S&P 500: {e}")
-
-  # 2. NASDAQ 100
-  try:
-    url_nasdaq = "https://en.wikipedia.org/wiki/Nasdaq-100"
-    tables = _fetch_wikipedia_table(url_nasdaq)
-    for df in tables:
-      col = next(
-          (
-              c
-              for c in df.columns
-              if str(c).lower() in ["ticker", "symbol", "company stock symbol"]
-          ),
-          None,
-      )
-      if col:
-        raw_nasdaq = (
-            df[col]
-            .dropna()
-            .astype(str)
-            .str.replace(".", "-", regex=False)
-            .str.strip()
-            .tolist()
-        )
-        tickers.update(raw_nasdaq)
-        print("✅ Nasdaq 100 caricato con successo.")
-        break
-  except Exception as e:
-    print(f"⚠️ Errore caricamento Nasdaq 100: {e}")
-
-  # 3. S&P MidCap 400
-  try:
-    url_midcap = "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies"
-    tables = _fetch_wikipedia_table(url_midcap)
-    for df in tables:
-      col = next(
-          (
-              c
-              for c in df.columns
-              if str(c).lower() in ["symbol", "ticker", "company stock symbol"]
-          ),
-          None,
-      )
-      if col:
-        raw_midcap = (
-            df[col]
-            .dropna()
-            .astype(str)
-            .str.replace(".", "-", regex=False)
-            .str.strip()
-            .tolist()
-        )
-        tickers.update(raw_midcap)
-        print("✅ S&P MidCap 400 caricato con successo.")
-        break
-  except Exception as e:
-    print(f"⚠️ Errore caricamento S&P MidCap 400: {e}")
-
-  lista_finale = list(tickers)
-  print(f"🎯 Totale titoli unici da analizzare: {len(lista_finale)}")
-  return lista_finale
-
-
-def ottieni_dati_azienda(ticker_obj, ticker_str):
-  """Verifica la salute di bilancio dell'azienda e recupera il nome esteso."""
-  nome_azienda = ""
-  is_sano = True
-  try:
-    info = ticker_obj.info
-    if info:
-      nome_azienda = info.get("shortName") or info.get("longName") or ""
-      debt_to_equity = info.get("debtToEquity", None)
-      if debt_to_equity is not None and debt_to_equity > 250:
-        is_sano = False
-      earnings_growth = info.get("earningsGrowth", None)
-      revenue_growth = info.get("revenueGrowth", None)
-      if earnings_growth is not None and earnings_growth < -0.20:
-        is_sano = False
-      if revenue_growth is not None and revenue_growth < -0.20:
-        is_sano = False
-  except Exception as e:
-    print(f"⚠️ Impossibile verificare info complete per {ticker_str}: {e}")
-    is_sano = True
-  ticker_display = (
-      f"{ticker_str} - {nome_azienda}" if nome_azienda else ticker_str
+def rileva_divergenza_cmf(df, lookback=15):
+  if len(df) < lookback + 5:
+    return 'Assente'
+  sub_df = df.iloc[-lookback:].copy()
+  prices = sub_df['Close'].values
+  cmf_vals = sub_df['CMF'].values
+  p_min1, p_min2 = np.min(prices[: lookback // 2]), np.min(prices[lookback // 2 :])
+  c_min1, c_min2 = np.min(cmf_vals[: lookback // 2]), np.min(
+      cmf_vals[lookback // 2 :]
   )
-  return is_sano, ticker_display
+  p_max1, p_max2 = np.max(prices[: lookback // 2]), np.max(prices[lookback // 2 :])
+  c_max1, c_max2 = np.max(cmf_vals[: lookback // 2]), np.max(
+      cmf_vals[lookback // 2 :]
+  )
+
+  if p_min2 < p_min1 and c_min2 > c_min1:
+    return 'Rialzista 🟢'
+  if p_max2 > p_max1 and c_max2 < c_max1:
+    return 'Ribassista 🔴'
+  return 'Assente'
+
+
+def calcola_volatilita_squeeze(df, length=20):
+  sma = df['Close'].rolling(window=length).mean()
+  std = df['Close'].rolling(window=length).std()
+  bb_upper, bb_lower = sma + (2 * std), sma - (2 * std)
+  atr = (
+      (df['High'] - df['Low'])
+      .combine((df['High'] - df['Close'].shift()).abs(), max)
+      .combine((df['Low'] - df['Close'].shift()).abs(), max)
+      .rolling(window=length)
+      .mean()
+  )
+  kc_upper, kc_lower = sma + (1.5 * atr), sma - (1.5 * atr)
+  return (bb_upper.iloc[-1] <= kc_upper.iloc[-1]) and (
+      bb_lower.iloc[-1] >= kc_lower.iloc[-1]
+  )
 
 
 # =====================================================================
-# MAIN FUNCTION
+# 3. FILTRO FONDAMENTALE INTELLIGENTE (SETTORE + R&D AWARE)
 # =====================================================================
-def main():
-  tickers = ottieni_ticker_usa()
-  print(f"🚀 Avvio Smart Money Radar su {len(tickers)} titoli USA...")
+def verifica_salute_finanziaria_intelligente(t_obj, cmf_val):
   try:
-    df_raw = yf.download(
-        tickers, period="1y", auto_adjust=True, progress=False
+    info = t_obj.info or {}
+    sector = info.get('sector', '')
+    revenue_growth = info.get('revenueGrowth', None)
+    earnings_growth = info.get('earningsGrowth', None)
+    debt_to_equity = info.get('debtToEquity', None)
+
+    if revenue_growth is not None and revenue_growth < -0.25 and cmf_val < 0.15:
+      return False, 'Crollo ricavi senza supporto istituzionale.'
+
+    settori_innovativi = [
+        'Technology',
+        'Healthcare',
+        'Biotechnology',
+        'Aerospace & Defense',
+        'Communication Services',
+    ]
+    is_growth_sector = sector in settori_innovativi
+
+    if debt_to_equity is not None and debt_to_equity > 350:
+      if not is_growth_sector and cmf_val < 0.05:
+        return False, 'Debito elevato in settore tradizionale.'
+
+    if earnings_growth is not None and earnings_growth < -0.30:
+      if is_growth_sector:
+        return (
+            True,
+            'Utili compressi ma giustificati da investimenti (R&D/Crescita).',
+        )
+      elif cmf_val < 0.10:
+        return False, 'Crollo utili senza supporto smart money.'
+
+    return True, 'Bilancio sano o sostenuto da investimenti strategici.'
+  except Exception:
+    return True, 'Dati fondamentali parziali, validato da tecnica.'
+
+
+# =====================================================================
+# 4. ANALISI DEL SINGOLO TITOLO & COSTRUZIONE VERDETTO
+# =====================================================================
+def analizza_titolo(ticker_str, data_oggi):
+  try:
+    t = yf.Ticker(ticker_str)
+    df = t.history(period='1y')
+    if df.empty or len(df) < 200:
+      return None
+    if isinstance(df.columns, pd.MultiIndex):
+      df.columns = df.columns.get_level_values(0)
+
+    # Indicatori
+    df['CMF'] = calcola_cmf(df['High'], df['Low'], df['Close'], df['Volume'])
+    df['RSI'] = calcola_rsi(df['Close'])
+    df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
+    df['SMA50'] = df['Close'].rolling(window=50).mean()
+    df['SMA200'] = df['Close'].rolling(window=200).mean()
+
+    curr = df.iloc[-1]
+    prezzo_attuale = float(curr['Close'])
+    massimo_52w = float(df['High'].max())
+    minimo_52w = float(df['Low'].min())
+    supporto_60g = float(df['Close'].iloc[-60:].min())
+    minimo_60g = supporto_60g
+
+    # 1. Filtro storno minimo 15% dai massimi
+    storno_pct = ((massimo_52w - prezzo_attuale) / massimo_52w) * 100
+    if storno_pct < SOGLIA_STORNO_MINIMA:
+      return None
+
+    # 2. Salute finanziaria intelligente (Settore & R&D)
+    cmf_corrente = float(curr['CMF'])
+    is_sano, nota_bilancio = verifica_salute_finanziaria_intelligente(
+        t, cmf_corrente
     )
-  except Exception as e:
-    print(f"Errore critico durante il download dati bulk: {e}")
-    invia_telegram(
-        CANALE_ACCUMULAZIONE_ID,
-        "❌ Errore critico nel download dei dati di borsa.",
+    if not is_sano:
+      return None
+
+    # Info anagrafiche e fondamentali
+    info = t.info or {}
+    nome_azienda = info.get('shortName') or info.get('longName') or ''
+    ticker_display = (
+        f'{ticker_str} - {nome_azienda}' if nome_azienda else ticker_str
+    )
+
+    target_price = info.get('targetMeanPrice', None)
+    upside = (
+        round(((target_price - prezzo_attuale) / prezzo_attuale) * 100, 2)
+        if target_price
+        else 'N/D'
+    )
+    fwd_pe = (
+        round(info.get('forwardPE'), 2) if info.get('forwardPE') else 'N/D'
+    )
+    peg = round(info.get('pegRatio'), 2) if info.get('pegRatio') else 'N/D'
+    short_pct = (
+        round(info.get('shortPercentOfFloat', 0) * 100, 2)
+        if info.get('shortPercentOfFloat')
+        else 'N/D'
+    )
+
+    # Distanze medie e livelli tecnici precisi
+    sma_50 = float(curr['SMA50'])
+    sma_200 = float(curr['SMA200'])
+    dist_sma50_pct = round(((prezzo_attuale - sma_50) / sma_50) * 100, 2)
+    dist_sma200_pct = round(((prezzo_attuale - sma_200) / sma_200) * 100, 2)
+    distanza_minimo_60g_pct = round(
+        ((prezzo_attuale - minimo_60g) / minimo_60g) * 100, 2
+    )
+    is_bear_market = prezzo_attuale < sma_200
+
+    divergenza = rileva_divergenza_cmf(df)
+    is_squeeze = calcola_volatilita_squeeze(df)
+
+    media_vol_5g = df['Volume'].iloc[-5:].mean()
+    media_vol_60g = df['Volume'].iloc[-60:].mean()
+    rvol_5d_pct = (
+        round((media_vol_5g / media_vol_60g) * 100, 1)
+        if media_vol_60g > 0
+        else 0.0
+    )
+
+    obv_serie = calcola_obv(df['Close'], df['Volume'])
+    obv_sma = obv_serie.rolling(20).mean()
+    obv_trend = (
+        'Rialzista (Accumulo)'
+        if float(obv_serie.iloc[-1]) > float(obv_sma.iloc[-1])
+        else 'Ribassista (Distribuzione)'
+    )
+
+    clv_5d = [
+        calcola_close_location_value(
+            df['Close'].iloc[i], df['Low'].iloc[i], df['High'].iloc[i]
+        )
+        for i in range(-5, 0)
+    ]
+    clv_val = float(np.mean(clv_5d))
+    poc_val = calcola_volume_poc(df['Close'], df['Volume'], periodi=60)
+
+    if cmf_corrente > 0.05 and clv_val >= 0.55:
+      vsa_rating = '🟢 ACCUMULAZIONE PULITA'
+    elif cmf_corrente < -0.05 and clv_val <= 0.45:
+      vsa_rating = '🔴 DISTRIBUZIONE'
+    else:
+      vsa_rating = '🟡 NEUTRO'
+
+    # --- IL CERVELLO DEL CONSULENTE: VERDETTO ED ETICHETTE OPERATIVE ---
+    if (
+        short_pct != 'N/D'
+        and float(short_pct) > 10
+        and cmf_corrente > 0.10
+        and is_squeeze
+    ):
+      verdetto = (
+          '🔥 [BREVE TERMINE] OCCASIONE SHORT SQUEEZE: Volumi esplosivi +'
+          ' Squeeze + Short Alto. Pronto al fuoco!'
+      )
+      orizzonte = 'Breve Termine (Esplosivo)'
+    elif divergenza == 'Rialzista 🟢':
+      verdetto = (
+          '🚀 [BREVE/MEDIO] DIP BUYING CONVERGENTE: Divergenza CMF rialzista sui'
+          ' minimi. Ottimo timing d\'ingresso.'
+      )
+      orizzonte = 'Breve/Medio Termine'
+    elif distanza_minimo_60g_pct <= 3.0 and cmf_corrente >= 0.0:
+      verdetto = (
+          '💎 [ACCUMULO A GOCCIA] VICINO AI MINIMI: Accumulo silenzioso in'
+          ' corso, ideale per primo gettone leggero.'
+      )
+      orizzonte = 'Lungo Termine (Accumulo Silenzioso)'
+    elif not is_bear_market and cmf_corrente > 0.05:
+      verdetto = (
+          '🛡️ [LUNGO TERMINE] ACCUMULO SANO IN BULL TREND: Struttura solida, da'
+          ' comprare e mettere in cassetto.'
+      )
+      orizzonte = 'Lungo Termine (Cassetto)'
+    elif is_bear_market and cmf_corrente > 0.05:
+      verdetto = (
+          '💎 [PAC / LUNGO] SCONTO PROFONDO SU DEBOLEZZA: Sotto SMA200 ma le'
+          ' mani forti stanno accumulando sul ribasso.'
+      )
+      orizzonte = 'Lungo Termine (PAC a Sconto)'
+    else:
+      verdetto = (
+          f'🔍 [ATTESA] MONITORARE SUPPORTO: Struttura incerta ({vsa_rating}).'
+          f' Nota: {nota_bilancio}'
+      )
+      orizzonte = 'Monitoraggio / Attendere'
+
+    # Smart Money Score interno per la classifica
+    score = 50
+    if cmf_corrente > 0.10:
+      score += 20
+    elif cmf_corrente > 0:
+      score += 10
+    if curr['Close'] > curr['EMA20']:
+      score += 10
+    if vsa_rating == '🟢 ACCUMULAZIONE PULITA':
+      score += 15
+    if divergenza == 'Rialzista 🟢':
+      score += 15
+    score = max(0, min(100, int(score)))
+
+    return {
+        'TOP 10 OCCASIONI': '-',
+        'Ticker': ticker_display,
+        'VERDETTO DEL CONSULENTE (AZIONE RAPIDA)': verdetto,
+        'Orizzonte Strategico': orizzonte,
+        'Prezzo Attuale ($)': round(prezzo_attuale, 2),
+        'Supporto 60G ($)': round(supporto_60g, 2),
+        'Distanza dal Minimo 60G (%)': distanza_minimo_60g_pct,
+        'Resistenza Max 52W ($)': round(massimo_52w, 2),
+        'Storno dai Max 52W (%)': round(storno_pct, 1),
+        'Distanza da SMA 50 (%)': dist_sma50_pct,
+        'Distanza da SMA 200 (%)': dist_sma200_pct,
+        'Trend di Fondo': (
+            '🔴 BEAR (Sotto SMA200)' if is_bear_market else '🟢 BULL (Sopra SMA200)'
+        ),
+        'Target Price Medio ($)': (
+            round(target_price, 2) if target_price else 'N/D'
+        ),
+        'Upside Atteso (%)': upside,
+        'RSI (14)': round(float(curr['RSI']), 1),
+        'Chaikin Money Flow (CMF)': round(cmf_corrente, 3),
+        'Divergenza CMF': divergenza,
+        'Volumi 1W (% vs 60G)': rvol_5d_pct,
+        'OBV Trend': obv_trend,
+        'Analisi VSA (Flussi)': vsa_rating,
+        'Squeeze Volatilità': 'Attivo 🔥' if is_squeeze else 'No',
+        'Point of Control (POC 60G)': round(poc_val, 2),
+        'Short Interest (%)': short_pct,
+        'Forward P/E': fwd_pe,
+        'PEG Ratio': peg,
+        'Analisi Fondamentale / Nota': nota_bilancio,
+        '_score_interno': score,
+    }
+  except Exception:
+    return None
+
+
+# =====================================================================
+# 5. GENERAZIONE EXCEL PULITO E ORDINATO
+# =====================================================================
+def genera_excel(df_risultati):
+  wb = openpyxl.Workbook()
+  ws = wb.active
+  ws.title = 'Consulente Smart Money'
+
+  cols_to_export = [c for c in df_risultati.columns if not c.startswith('_')]
+  df_export = df_risultati[cols_to_export]
+
+  for r in dataframe_to_rows(df_export, index=False, header=True):
+    ws.append(r)
+
+  header_fill = PatternFill(
+      start_color='1F4E79', end_color='1F4E79', fill_type='solid'
+  )
+  top_fill = PatternFill(
+      start_color='D9EAD3', end_color='D9EAD3', fill_type='solid'
+  )
+  header_font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+  thin_border = Border(
+      left=openpyxl.styles.Side(style='thin', color='D9D9D9'),
+      right=openpyxl.styles.Side(style='thin', color='D9D9D9'),
+      top=openpyxl.styles.Side(style='thin', color='D9D9D9'),
+      bottom=openpyxl.styles.Side(style='thin', color='D9D9D9'),
+  )
+
+  for cell in ws[1]:
+    cell.fill = header_fill
+    cell.font = header_font
+    cell.alignment = Alignment(
+        horizontal='center', vertical='center', wrap_text=True
+    )
+
+  for row_idx, row in enumerate(
+      ws.iter_rows(min_row=2, max_row=ws.max_row, max_col=ws.max_column),
+      start=2,
+  ):
+    is_top10 = row_idx <= 11
+    for cell in row:
+      cell.border = thin_border
+      cell.alignment = Alignment(horizontal='center', vertical='center')
+      if is_top10:
+        cell.fill = top_fill
+
+  for col in ws.columns:
+    max_len = max(len(str(cell.value or '')) for cell in col)
+    col_letter = openpyxl.utils.get_column_letter(col[0].column)
+    ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 50)
+
+  data_oggi = datetime.now().strftime('%Y-%m-%d')
+  excel_file = f'Consulente_Smart_Money_{data_oggi}.xlsx'
+  wb.save(excel_file)
+  return excel_file
+
+
+# =====================================================================
+# 6. INVIO E-MAIL CON REPORT EXCEL (NO TELEGRAM)
+# =====================================================================
+def invia_email_report(file_path, data_oggi, num_titoli):
+  if not all([SENDER_EMAIL, APP_PASSWORD]):
+    print(
+        '⚠️ Credenziali e-mail non configurate. File Excel salvato nella cartella'
+        ' locale.'
     )
     return
 
-  # Estrazione DataFrame multi-index
-  if isinstance(df_raw.columns, pd.MultiIndex):
-    df_close = (
-        df_raw["Close"]
-        if "Close" in df_raw.columns.levels[0]
-        else df_raw.xs("Close", axis=1, level=1)
-    )
-    df_volume = (
-        df_raw["Volume"]
-        if "Volume" in df_raw.columns.levels[0]
-        else df_raw.xs("Volume", axis=1, level=1)
-    )
-    df_high = (
-        df_raw["High"]
-        if "High" in df_raw.columns.levels[0]
-        else df_raw.xs("High", axis=1, level=1)
-    )
-    df_low = (
-        df_raw["Low"]
-        if "Low" in df_raw.columns.levels[0]
-        else df_raw.xs("Low", axis=1, level=1)
+  msg = MIMEMultipart()
+  msg['From'] = SENDER_EMAIL
+  msg['To'] = RECEIVER_EMAIL
+  msg['Subject'] = (
+      f'🧠 Report Consulente Smart Money ({data_oggi}) - Trovate {num_titoli}'
+      ' Occasioni'
+  )
+
+  body = (
+      f'Ciao! Il tuo consulente virtuale ha completato l\'analisi in data'
+      f' {data_oggi}.\n\nSono state filtrate le migliori occasioni di mercato'
+      ' con storno >= 15%, bilanci sani/R&D e flussi istituzionali.\nApri il'
+      ' file Excel allegato per leggere i verdetti operativi, le distanze dal'
+      ' minimo di periodo (per l\'accumulo a goccia) e le medie mobili.\n\nBuon'
+      ' gain!'
+  )
+  msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+  with open(file_path, 'rb') as f:
+    part = MIMEApplication(f.read(), Name=os.path.basename(file_path))
+    part[
+        'Content-Disposition'
+    ] = f'attachment; filename="{os.path.basename(file_path)}"'
+    msg.attach(part)
+
+  try:
+    server = smtplib.SMTP('smtp.gmail.com', 587)
+    server.starttls()
+    server.login(SENDER_EMAIL, APP_PASSWORD)
+    server.send_message(msg)
+    server.quit()
+    print('✅ E-mail con report Excel inviata con successo!')
+  except Exception as e:
+    print(f'❌ Errore invio e-mail: {e}')
+
+
+# =====================================================================
+# 7. ESECUZIONE PRINCIPALE
+# =====================================================================
+if __name__ == '__main__':
+  data_oggi = datetime.now().strftime('%Y-%m-%d')
+  print(f'=== Avvio Consulente Smart Money & Screener ({data_oggi}) ===')
+
+  tickers = ottieni_ticker_usa()
+  print(f'Titoli totali in scansione: {len(tickers)}')
+
+  risultati = []
+  for idx, t in enumerate(tickers):
+    res = analizza_titolo(t, data_oggi)
+    if res:
+      risultati.append(res)
+    if (idx + 1) % 100 == 0:
+      print(f'Analizzati {idx + 1}/{len(tickers)}...')
+
+  if risultati:
+    df_res = pd.DataFrame(risultati)
+
+    # Ordinamento per punteggio e forza dei flussi istituzionali
+    df_res = df_res.sort_values(
+        by=['_score_interno', 'Chaikin Money Flow (CMF)'], ascending=False
+    ).reset_index(drop=True)
+
+    # Assegnazione Top 10 Occasioni
+    for i in range(min(10, len(df_res))):
+      df_res.at[i, 'TOP 10 OCCASIONI'] = f'⭐ TOP {i+1}'
+
+    df_res = df_res.drop(columns=['_score_interno'])
+
+    # Salvataggio Excel e invio e-mail
+    excel_path = genera_excel(df_res)
+    invia_email_report(excel_path, data_oggi, len(df_res))
+
+    print(
+        f'🚀 Analisi completata! Il consulente ha selezionato {len(df_res)}'
+        ' occasioni d\'oro salvate nel file Excel.'
     )
   else:
-    df_close = df_raw
-    df_volume, df_high, df_low = None, None, None
-
-  candidati = []
-  for ticker in df_close.columns:
-    try:
-      ticker_str = str(ticker)
-      chiusure = df_close[ticker].dropna()
-      if len(chiusure) < 200:
-        continue
-
-      volumi = df_volume[ticker].dropna() if df_volume is not None else None
-      massimi = df_high[ticker].dropna() if df_high is not None else None
-      minimi = df_low[ticker].dropna() if df_low is not None else None
-
-      prezzo_attuale = float(chiusure.iloc[-1])
-      massimo_52w = float(chiusure.max())
-      minimo_52w = float(chiusure.min())
-      storno_pct = ((massimo_52w - prezzo_attuale) / massimo_52w) * 100
-      dist_min_52w_pct = (
-          (prezzo_attuale - minimo_52w) / minimo_52w
-      ) * 100
-
-      # FILTRO 1: Storno minimo del 15% dai max 52W
-      if storno_pct < SOGLIA_STORNO_MINIMA:
-        continue
-
-      # CALCOLO MEDIA VOLUMI 1 SETTIMANA (5 GIORNI) vs MEDIA 60 GIORNI
-      rvol_5d_pct = 0.0
-      if volumi is not None and len(volumi) >= 60:
-        media_vol_5g = volumi.iloc[-5:].mean()
-        media_vol_60g = volumi.iloc[-60:].mean()
-        if media_vol_60g > 0:
-          rvol_5d_pct = (media_vol_5g / media_vol_60g) * 100
-
-      # FILTRO 2: Volumi della settimana almeno al 115%
-      if rvol_5d_pct < SOGLIA_VOLUMI_SETTIMANA:
-        continue
-
-      # FILTRO 3: Bilanci sani + Recupero nome esteso
-      t_obj = yf.Ticker(ticker_str)
-      is_sano, ticker_display = ottieni_dati_azienda(t_obj, ticker_str)
-      if not is_sano:
-        continue
-
-      # CALCOLI ANALISI TECNICA AVANZATA
-      minimo_60g = float(chiusure.iloc[-60:].min())
-      distanza_supporto_pct = (
-          (prezzo_attuale - minimo_60g) / minimo_60g
-      ) * 100
-      sma_200 = float(chiusure.rolling(window=200).mean().iloc[-1])
-      distanza_sma200_pct = ((prezzo_attuale - sma_200) / sma_200) * 100
-      is_bear_market = prezzo_attuale < sma_200
-
-      rsi_serie = calcola_rsi(chiusure)
-      rsi_attuale = float(rsi_serie.iloc[-1])
-
-      # Nuovi Indicatori
-      cmf_val = 0.0
-      obv_trend = "Neutro"
-      clv_val = 0.5
-      poc_val = prezzo_attuale
-
-      if (
-          volumi is not None
-          and massimi is not None
-          and minimi is not None
-          and len(volumi) >= 20
-      ):
-        # CMF (Chaikin Money Flow)
-        cmf_serie = calcola_cmf(massimi, minimi, chiusure, volumi, periodi=20)
-        cmf_val = float(cmf_serie.iloc[-1])
-
-        # OBV Trend (confronto OBV attuale vs media 20 giorni)
-        obv_serie = calcola_obv(chiusure, volumi)
-        obv_sma = obv_serie.rolling(20).mean()
-        if float(obv_serie.iloc[-1]) > float(obv_sma.iloc[-1]):
-          obv_trend = "Rialzista (Accumulo)"
-        else:
-          obv_trend = "Ribassista (Distribuzione)"
-
-        # CLV (Close Location Value) media ultimi 5 giorni
-        clv_5d = [
-            calcola_close_location_value(
-                chiusure.iloc[i], minimi.iloc[i], massimi.iloc[i]
-            )
-            for i in range(-5, 0)
-        ]
-        clv_val = float(np.mean(clv_5d))
-
-        # Volume POC (Point of Control 60 giorni)
-        poc_val = calcola_volume_poc(chiusure, volumi, periodi=60)
-
-      # DETERMINAZIONE PATTERN VSA (Volume Spread Analysis)
-      if cmf_val > 0.05 and clv_val >= 0.55:
-        vsa_rating = "🟢 ACCUMULAZIONE PULITA"
-      elif cmf_val < -0.05 and clv_val <= 0.45:
-        vsa_rating = "🔴 DISTRIBUZIONE / VENDITA"
-      else:
-        vsa_rating = "🟡 NEUTRO / VOLATILITÀ"
-
-      candidati.append({
-          "ticker_raw": ticker_str,
-          "ticker_display": ticker_display,
-          "prezzo": prezzo_attuale,
-          "rsi": rsi_attuale,
-          "storno": storno_pct,
-          "is_bear": is_bear_market,
-          "rvol_5d": rvol_5d_pct,
-          "supporto_60g": minimo_60g,
-          "dist_supp_pct": distanza_supporto_pct,
-          "resistenza_52w": massimo_52w,
-          "minimo_52w": minimo_52w,
-          "dist_min_52w_pct": dist_min_52w_pct,
-          "sma_200": sma_200,
-          "dist_sma200_pct": distanza_sma200_pct,
-          "cmf": cmf_val,
-          "obv_trend": obv_trend,
-          "clv": clv_val,
-          "poc_60g": poc_val,
-          "vsa_rating": vsa_rating,
-      })
-    except Exception:
-      continue
-
-  print(
-      f"✅ Scansione completata. {len(candidati)} titoli in fase di accumulazione"
-      " rilevati oggi!"
-  )
-  if not candidati:
-    msg_vuoto = (
-        "ℹ️ **Smart Money Radar**: Nessun titolo in storno > 15% presenta"
-        " accumulazione di volumi (VOL 1W >= 115%) nella sessione odierna."
+    print(
+        'Nessun titolo rispetta i criteri restrittivi del consulente per oggi.'
     )
-    invia_telegram(CANALE_ACCUMULAZIONE_ID, msg_vuoto)
-    return
-
-  candidati_ordinati = sorted(
-      candidati, key=lambda x: x["rvol_5d"], reverse=True
-  )
-
-  # GENERAZIONE FILE EXCEL CON DATI PER REPORT QUINDICINALE
-  data_odierna = datetime.now().strftime("%Y-%m-%d")
-  excel_filename = f"Report_Accumulazione_{data_odierna}.xlsx"
-  excel_data = []
-
-  for c in candidati_ordinati:
-    stato_trend = (
-        "🔴 BEAR TREND (Sotto SMA200)"
-        if c["is_bear"]
-        else "🟢 BULL TREND (Sopra SMA200)"
-    )
-    condizione_rsi = (
-        "Ipervenduto (<30)" if c["rsi"] < 30 else "Neutro/Normale"
-    )
-
-    if c["vsa_rating"] == "🟢 ACCUMULAZIONE PULITA":
-      valutazione = "🟢 Forte pressione in acquisto: Mani forti in accumulo."
-    elif c["vsa_rating"] == "🔴 DISTRIBUZIONE / VENDITA":
-      valutazione = "🔴 Attenzione: Elevati volumi in vendita (Distribuzione)."
-    else:
-      valutazione = "🟡 Frequente volatilità: attendere conferme di inversione."
-
-    excel_data.append({
-        "Ticker": c["ticker_display"],
-        "Trend Market": stato_trend,
-        "Prezzo Attuale ($)": round(c["prezzo"], 2),
-        "SMA 200 ($)": round(c["sma_200"], 2),
-        "Distanza da SMA200 (%)": round(c["dist_sma200_pct"] / 100, 4),
-        "Supporto 60G ($)": round(c["supporto_60g"], 2),
-        "Distanza da Supp. (%)": round(c["dist_supp_pct"] / 100, 4),
-        "Resistenza 52W ($)": round(c["resistenza_52w"], 2),
-        "Storno dai Max 52W (%)": round(c["storno"] / 100, 4),
-        "Dist. Dai Min 52W (%)": round(c["dist_min_52w_pct"] / 100, 4),
-        "Volumi 1W (% vs media 60g)": round(c["rvol_5d"] / 100, 4),
-        "RSI (14)": round(c["rsi"], 1),
-        "Stato RSI": condizione_rsi,
-        "CMF (20G)": round(c["cmf"], 3),
-        "OBV Trend": c["obv_trend"],
-        "Close Location (0-1)": round(c["clv"], 2),
-        "POC Volumi 60G ($)": round(c["poc_60g"], 2),
-        "Analisi VSA (Volume Spread)": c["vsa_rating"],
-        "Suggerimento / Action": valutazione,
-    })
-
-  df_excel = pd.DataFrame(excel_data)
-  try:
-    with pd.ExcelWriter(excel_filename, engine="openpyxl") as writer:
-      df_excel.to_excel(writer, sheet_name="Accumulazione", index=False)
-    print(f"📊 File Excel generato con successo: {excel_filename}")
-  except Exception as e:
-    print(f"❌ Errore durante la creazione del file Excel: {e}")
-
-  # FORMATTAZIONE E INVIO TELEGRAM & EMAIL
-  dips_bull_market = []
-  bear_market_watchlist = []
-  corpo_email_testo = (
-      f"Smart Money Radar - Report Accumulazione del {data_odierna}\n\n"
-  )
-
-  for c in candidati_ordinati:
-    info_vol = f"VOL 1W: {c['rvol_5d']:.0f}%"
-    info_storno = f"-{c['storno']:.1f}% dai max"
-    info_vsa = f"VSA: {c['vsa_rating']}"
-    info_rsi = (
-        f"**RSI: {c['rsi']:.0f} (Ipervenduto)**"
-        if c["rsi"] < 30
-        else f"RSI: {c['rsi']:.0f}"
-    )
-
-    if not c["is_bear"]:
-      riga_str = (
-          f"• 🟢 **{c['ticker_raw']}** (${c['prezzo']:.1f} | {info_vol} |"
-          f" {info_storno} | {info_rsi} | {info_vsa})"
-      )
-      dips_bull_market.append(riga_str)
-    else:
-      riga_str = (
-          f"• 🔴 **{c['ticker_raw']}** (${c['prezzo']:.1f} | {info_vol} |"
-          f" {info_storno} | {info_rsi} | {info_vsa})"
-      )
-      bear_market_watchlist.append(riga_str)
-
-  righe = ["📡 **SMART MONEY RADAR - REPORT ACCUMULAZIONE**\n"]
-  if dips_bull_market:
-    righe.append("🟢 **ACCUMULAZIONE IN BULL TREND (Sopra SMA200)**")
-    righe.extend(dips_bull_market)
-    righe.append("")
-  if bear_market_watchlist:
-    righe.append("🔴 **ACCUMULAZIONE IN BEAR TREND (Sotto SMA200)**")
-    righe.extend(bear_market_watchlist)
-
-  msg = ""
-  for r in righe:
-    if len(msg) + len(r) + 1 > 3800:
-      invia_telegram(CANALE_ACCUMULAZIONE_ID, msg)
-      msg = r + "\n"
-    else:
-      msg += r + "\n"
-  if msg:
-    invia_telegram(CANALE_ACCUMULAZIONE_ID, msg)
-
-  corpo_email_testo += "\n".join(righe).replace("**", "")
-  corpo_email_testo += (
-      "\n\nTrovi in allegato il report in formato Excel completo di tutte le"
-      " metriche e suggerimenti operativi per l'analisi quindicinale."
-  )
-
-  invia_email_con_allegato(
-      oggetto=f"📈 Smart Money Radar Report - {data_odierna}",
-      corpo_testo=corpo_email_testo,
-      file_excel_path=excel_filename,
-  )
-
-
-if __name__ == "__main__":
-  main()
