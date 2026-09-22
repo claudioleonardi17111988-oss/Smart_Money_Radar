@@ -24,10 +24,10 @@ jobs:
     - name: Installa dipendenze necessarie
       run: |
         python -m pip install --upgrade pip
-        pip install pandas yfinance requests openpyxl
+        pip install pandas yfinance requests openpyxl numpy
 
-    # 1. Scansione automatica di tutto il mercato USA
-    - name: Esegui Smart Money Radar Globale
+    # 1. Scansione automatica del Consulente Smart Money Globale
+    - name: Esegui Consulente Smart Money
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         CANALE_ACCUMULAZIONE_ID: ${{ secrets.CANALE_ACCUMULAZIONE_ID }}
