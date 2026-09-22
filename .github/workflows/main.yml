@@ -2,8 +2,8 @@ name: Smart Money Radar Execution
 
 on:
   schedule:
-    # Esegue da lunedì a venerdì alle 22:00 UTC (dopo la chiusura di Wall Street)
-    - cron: '0 22 * * 1-5'
+    # Esegue ogni lunedì alle 02:00 UTC (dopo le chiusure e il consolidamento del fine settimana)
+    - cron: '0 2 * * 1'
   workflow_dispatch:
 
 jobs:
