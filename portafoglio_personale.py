@@ -60,6 +60,9 @@ MEI_PORTAFOGLIO_CONFIG = {
     "ZENA": {"pmc": 2.03, "core": True},
     "ADUR": {"pmc": 12.91, "core": True},
     "XYL": {"pmc": 97.73, "core": True},
+    "HEI": {"pmc": 195.00, "core": True},
+    "SKHY": {"pmc": 168.00, "core": True},
+    "UPST": {"pmc": 23.99, "core": True},
     # "POET": {"pmc": 1.50, "core": True},  # Esempio inserimento POET Technology
 }
 
