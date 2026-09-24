@@ -63,6 +63,7 @@ MEI_PORTAFOGLIO_CONFIG = {
     "HEI": {"pmc": 195.00, "core": True},
     "SKHY": {"pmc": 168.00, "core": True},
     "UPST": {"pmc": 23.99, "core": True},
+    "HTZ": {"pmc": 2.83, "core": True},
     # "POET": {"pmc": 1.50, "core": True},  # Esempio inserimento POET Technology
 }
 
