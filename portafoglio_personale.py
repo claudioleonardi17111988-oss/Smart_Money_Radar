@@ -206,9 +206,9 @@ def genera_suggerimento_ibrido(c):
   cmf = c["cmf"]
   vsa = c["vsa_rating"]
   rsi = c["rsi"]
-  storno = c["storno"]  # Storno percentuale dai massimi di 52 settimane
+  storno = c["storno"]  
   pnl_pct = c["pnl_pct"]
-  short_pct = c["short_pct"]
+  short_pct = c.get("short_interest", "N/D")
 
   # 1. GESTIONE SPECIFICA PER TITOLI CORE IN FORTE STORNO (Es. -30%, -40% o peggio)
   if is_core:
