@@ -50,7 +50,7 @@ MEI_PORTAFOGLIO_CONFIG = {
     "QCOM": {"pmc": 146.84, "core": False},
     "TDG": {"pmc": 1071.77, "core": True},
     "VST": {"pmc": 132.48, "core": True},
-    "ROL": {"pmc": 31.0, "core": False},
+    "ROL": {"pmc": 31.00, "core": False},
     "NVO": {"pmc": 37.58, "core": True},
     "AMTM": {"pmc": 19.73, "core": True},
     "BMY": {"pmc": 50.60, "core": True},
@@ -190,7 +190,6 @@ def ottieni_dati_fondamentali_e_anagrafica(ticker_obj, ticker_str):
         short_pct = round(info.get("shortPercentOfFloat") * 100, 2)
   except Exception:
     pass
-
   ticker_display = (
       f"{ticker_str} - {nome_azienda}" if nome_azienda else ticker_str
   )
@@ -198,7 +197,7 @@ def ottieni_dati_fondamentali_e_anagrafica(ticker_obj, ticker_str):
 
 
 # =====================================================================
-# MOTORE DI SUGGERIMENTO IBRIDO CON GESTIONE DRAWDOWN CORE
+# MOTORE DI SUGGERIMENTO IBRIDO & PAC DINAMICO AVANZATO
 # =====================================================================
 def genera_suggerimento_ibrido(c):
   is_core = c["is_core"]
@@ -206,38 +205,55 @@ def genera_suggerimento_ibrido(c):
   cmf = c["cmf"]
   vsa = c["vsa_rating"]
   rsi = c["rsi"]
-  storno = c["storno"]  
+  storno = c["storno"]
   pnl_pct = c["pnl_pct"]
   short_pct = c.get("short_interest", "N/D")
 
-  # 1. GESTIONE SPECIFICA PER TITOLI CORE IN FORTE STORNO (Es. -30%, -40% o peggio)
-  if is_core:
-    if storno >= 35.0:
-      # Se lo storno è profondo (>35%) verifichiamo se c'è capitolazione o supporto istituzionale
-      if is_bear and cmf < -0.05:
+  in_guadagno = isinstance(pnl_pct, (int, float)) and pnl_pct > 0
+  in_perdita = isinstance(pnl_pct, (int, float)) and pnl_pct < 0
+
+  # 1. GESTIONE DRAWDOWN PROFONDO (-35% o peggio)
+  if storno >= 35.0:
+    if is_bear and cmf < -0.05:
+      return (
+          f"⚠️ [ALLARME - ROTTURA STRUTTURALE (-{storno:.1f}%)]:"
+          " Drawdown severo sotto SMA200 e flussi in uscita. "
+          f"{'La tesi Core regge di lungo, ma valuta alleggerimento o stop.' if is_core else 'Asset tattico compromesso: non mediare.'}"
+      )
+    else:
+      if in_perdita:
         return (
-            f"⚠️ [ALLARME CORE - ROTTURA STRUTTURALE (-{storno:.1f}%)]:"
-            " Il titolo ha subito un drawdown severo ed è sotto la SMA200 con"
-            " flussi in uscita. La tesi resta di lungo termine, ma il rischio"
-            " di un bear market prolungato è alto: valuta di alleggerire una"
-            " quota (es. 30-50%) per proteggere il capitale e rientrare più"
-            " in basso."
+            f"🚀 [RIPRENDI ACCUMULO - MEDIA PESANTE (-{storno:.1f}%)]:"
+            " Sei in perdita ma il titolo è in profondo sconto con flussi stabili o assorbimento. "
+            "Ottimo momento per riprendere il PAC con una quota consistente per mediare efficacemente."
         )
       else:
         return (
             f"🛡️ [CORE IN PROFONDO SCONTO (-{storno:.1f}%)]:"
-            " Drawdown importante ma le mani forti non stanno fuggendo"
-            " in modo disordinato. Non svendere la posizione strategica:"
-            " sfrutta la debolezza per accumulare gradualmente (DCA)."
+            " Drawdown importante ma le mani forti non fuggono. Sfrutta la debolezza per accumulare (DCA)."
         )
-    elif storno >= 20.0:
+
+  # 2. CORREZIONE INTERMEDIA (20% - 35%)
+  elif storno >= 20.0:
+    if in_perdita and cmf >= -0.02:
+      return (
+          f"🚀 [RIPRENDI ACCUMULO - INVERSIONE SUPPORTO (-{storno:.1f}%)]:"
+          " Il titolo è in perdita ma sta trovando stabilità sui supporti con flussi sani. "
+          "Riprendi l'accumulo con una quota più consistente per abbassare il PMC."
+      )
+    elif in_guadagno:
+      return (
+          f"🔥 [ULTIMA OCCASIONE / INCREMENTA (-{storno:.1f}%)]:"
+          " Sei in utile ma il titolo offre uno storno sano. "
+          "Approfitta di questa zona di prezzo vantaggiosa per aumentare la quota di accumulo prima della ripartenza."
+      )
+    else:
       return (
           f"💎 [CORE IN CORREZIONE (-{storno:.1f}%)]:"
-          " Storno fisiologico per un asset di crescita. Mantieni la posizione"
-          " core salda, la tesi di fondo non è compromessa."
+          " Storno fisiologico. Mantieni la posizione salda e valuta acquisti mirati."
       )
 
-  # 2. Segnale Short Squeeze Esplosivo (Valido per entrambi se ci sono i presupposti)
+  # 3. SHORT SQUEEZE ESPLOSIVO
   if (
       isinstance(short_pct, (int, float))
       and short_pct > 10
@@ -245,73 +261,55 @@ def genera_suggerimento_ibrido(c):
       and not is_bear
   ):
     return (
-        "🔥 [SHORT SQUEEZE IN ATTO]: Short interest alto + mani forti in forte"
-        " accumulo. Lascia correre aggressivo!"
+        "🔥 [SHORT SQUEEZE IN ATTO]: Short interest alto + forti flussi in ingresso. "
+        f"{'Aumenta la quota o fai correre i profitti!' if in_guadagno else 'Ottima occasione di spinta.'}"
     )
 
-  # 3. SE IL TITOLO "SCOTTA" SUI MASSIMI (Ipercomprato + Distribuzione)
-  titolo_scotta = (rsi > 78 or (storno < 3.0 and rsi > 72)) and (
-      cmf < -0.02 or vsa == "🔴 DISTRIBUZIONE / VENDITA"
+  # 4. TREND RIALZISTA SANO E ACCUMULO PULITO (BULL TREND)
+  if not is_bear and cmf > 0.03 and vsa == "🟢 ACCUMULAZIONE PULITA":
+    if in_guadagno:
+      return (
+          "🟢 [CONTINUA ACCUMULO - TREND FORTE]: "
+          "Sei in guadagno e il trend è ben delineato con flussi istituzionali sani. "
+          "Continua il PAC regolarmente senza timore di alzare il PMC."
+      )
+    else:
+      return (
+          "🟢 [ACCUMULO ATTIVO]: Trend e flussi sani. Continua ad accumulare."
+      )
+
+  # 5. FASE DI DISTRIBUZIONE O BEAR MARKET ATTIVO
+  if vsa == "🔴 DISTRIBUZIONE / VENDITA" or (is_bear and cmf < -0.03):
+    if in_guadagno:
+      return (
+          "🟡 [SOSPENDI ACCUMULO - PROTEGGI IL GAIN]: "
+          "Il titolo è in utile ma mostra distribuzione/debolezza sotto la SMA200. "
+          "Sospendi l'accumulo per evitare di alzare il PMC in fase stagnante o discendente."
+      )
+    else:
+      return (
+          "🛑 [SOSPENDI ACCUMULO - EVITA IL CROLLO]: "
+          "Flussi negativi e trend ribassista attivo. "
+          "Evita assolutamente di mediare al ribasso su questo asset per non incastrare altra liquidità."
+      )
+
+  # 6. DEFAULT / FASI LATERALI O IPERVENDUTO
+  if rsi < 30:
+    return (
+        "🟡 [AREA IPERVENDUTO]: Titolo molto scarico (RSI < 30). "
+        f"{'Valuta un acquisto mirato di rimbalzo.' if in_perdita else 'Monitora per ripartenza.'}"
+    )
+
+  if in_guadagno and not is_bear:
+    return (
+        "💎 [MANTIENI IL GAIN]: Posizione in utile con struttura stabile. "
+        "Puoi proseguire il PAC regolare o mantenere la quota attuale."
+    )
+
+  return (
+      "🟡 [FASE NEUTRA / LATERALE]: Struttura senza direzionalità chiara. "
+      "Mantieni la posizione senza forzare nuovi ingressi."
   )
-
-  if titolo_scotta:
-    if is_core:
-      return (
-          f"🛡️ [CORE - ZONA CALDA]: Il titolo scotta (RSI {rsi:.1f}) sui"
-          " massimi. Essendo un pilastro strategico, **NON VENDERE LA CORE**:"
-          " ignora il rumore di breve e attendi lo storno per incrementare."
-      )
-    else:
-      return (
-          f"💰 [ZONA CALDA - PRENDI PROFITTO]: Titolo tirato (RSI {rsi:.1f}) con"
-          " distribuzione in corso. Alleggerisci la quota tattica."
-      )
-
-  # 4. Gain straordinario senza distribuzione
-  if pnl_pct != "N/D" and pnl_pct > 50.0 and not is_bear:
-    return (
-        f"🚀 [GAIN STRAORDINARIO (+{pnl_pct:.1f}%)]: Trend solido e tesi"
-        " intatta. Fai correre i profitti."
-    )
-
-  # 5. Trend rialzista sano e accumulo pulito
-  if not is_bear and cmf > 0.05 and vsa == "🟢 ACCUMULAZIONE PULITA":
-    return (
-        "🟢 [ACCUMULO ATTIVO]: Trend e flussi istituzionali sani. Continua ad"
-        " accumulare."
-    )
-
-  # 6. Storno sano con supporto delle mani forti
-  elif cmf >= 0.0 and storno >= 12.0:
-    return (
-        "💎 [SCONTO STRATEGICO]: Storno salutare in corso con assorbimento"
-        " istituzionale. Ottima zona d'acquisto."
-    )
-
-  # 7. Distribuzione generale / Trend ribassista
-  elif vsa == "🔴 DISTRIBUZIONE / VENDITA" or cmf < -0.05:
-    if is_core:
-      return (
-          "⚠️ [FASE DIFENSIVA CORE]: Pressione ribassista. Mantieni la barra"
-          " dritta sul lungo termine monitorando i supporti."
-      )
-    else:
-      return (
-          "🔴 [DISTRIBUZIONE]: Flussi negativi. Evita di mediare al ribasso su"
-          " questo asset tattico."
-      )
-
-  # 8. Default / Neutro
-  else:
-    if rsi < 30:
-      return (
-          "🟡 [AREA IPERVENDUTO]: Titolo molto scarico (RSI < 30). Monitorare"
-          " per rimbalzo."
-      )
-    return (
-        "🟡 [FASE NEUTRA]: Struttura laterale. Mantenere la posizione senza"
-        " fretta."
-    )
 
 
 # =====================================================================
@@ -324,11 +322,9 @@ def main():
   if not tickers:
     print("⚠️ Nessun ticker inserito nella configurazione del portafoglio.")
     return
-
   print(f"💱 Recupero tasso di cambio EUR/USD in corso...")
   eur_usd_rate = ottieni_tasso_cambio_eur_usd()
   print(f"ℹ️ Tasso di cambio utilizzato (EUR/USD): {eur_usd_rate:.4f}")
-
   print(
       f"🚀 Avvio scansione del Portafoglio Ibrido su {len(tickers)} titoli..."
   )
@@ -373,14 +369,12 @@ def main():
             if "Low" in df_raw
             else df_raw.xs(ticker_str, axis=1, level=1)["Low"]
         )
-
       chiusure = df_close.dropna()
       if len(chiusure) < 50:
         continue
       volumi = df_volume.dropna()
       massimi = df_high.dropna()
       minimi = df_low.dropna()
-
       prezzo_attuale = float(chiusure.iloc[-1])
       massimo_52w = float(chiusure.max())
       minimo_52w = float(chiusure.min())
@@ -388,11 +382,9 @@ def main():
       dist_min_52w_pct = (
           (prezzo_attuale - minimo_52w) / minimo_52w
       ) * 100
-
       config_titolo = MEI_PORTAFOGLIO_CONFIG.get(ticker_str, {})
       pmc_eur = config_titolo.get("pmc", 0.0)
       is_core = config_titolo.get("core", False)
-
       if pmc_eur > 0:
         if ticker_str.endswith(".MI") or ticker_str.endswith(".PA"):
           pmc_usd = pmc_eur
@@ -416,7 +408,6 @@ def main():
       ticker_display, fwd_pe, peg, short_pct = (
           ottieni_dati_fondamentali_e_anagrafica(t_obj, ticker_str)
       )
-
       minimo_60g = (
           float(chiusure.iloc[-60:].min())
           if len(chiusure) >= 60
@@ -425,7 +416,6 @@ def main():
       distanza_supporto_pct = (
           (prezzo_attuale - minimo_60g) / minimo_60g
       ) * 100
-
       sma_50 = (
           float(chiusure.rolling(window=50).mean().iloc[-1])
           if len(chiusure) >= 50
@@ -434,7 +424,6 @@ def main():
       dist_sma50_pct = round(
           ((prezzo_attuale - sma_50) / sma_50) * 100 if sma_50 > 0 else 0.0, 2
       )
-
       sma_200 = (
           float(chiusure.rolling(window=200).mean().iloc[-1])
           if len(chiusure) >= 200
@@ -449,10 +438,8 @@ def main():
           2,
       )
       is_bear_market = prezzo_attuale < sma_200
-
       rsi_serie = calcola_rsi(chiusure)
       rsi_attuale = float(rsi_serie.iloc[-1])
-
       cmf_val = 0.0
       obv_trend = "Neutro"
       clv_val = 0.5
@@ -513,10 +500,8 @@ def main():
           "peg_ratio": peg,
           "short_interest": short_pct,
       }
-
       diz_candidato["suggerimento"] = genera_suggerimento_ibrido(diz_candidato)
       candidati.append(diz_candidato)
-
     except Exception as e:
       print(f"⚠️ Errore durante l'elaborazione del ticker {ticker_str}: {e}")
       continue
@@ -529,7 +514,6 @@ def main():
   data_odierna = datetime.now().strftime("%Y-%m-%d")
   excel_filename = f"Report_Portafoglio_Ibrido_{data_odierna}.xlsx"
   excel_data = []
-
   for c in candidati:
     stato_trend = (
         "🔴 BEAR TREND (Sotto SMA200)"
@@ -545,7 +529,6 @@ def main():
         if isinstance(c["pnl_pct"], (int, float))
         else "N/D"
     )
-
     excel_data.append({
         "Ticker": c["ticker_display"],
         "Profilo Asset": tipo_asset,
@@ -568,7 +551,6 @@ def main():
         "Analisi VSA": c["vsa_rating"],
         "Suggerimento / Action": c["suggerimento"],
     })
-
   df_excel = pd.DataFrame(excel_data)
   try:
     with pd.ExcelWriter(excel_filename, engine="openpyxl") as writer:
@@ -593,7 +575,6 @@ def main():
         f"• {trend_icon}{core_label} **{c['ticker_raw']}** (${c['prezzo']:.1f})"
         f" ➔ *{c['suggerimento']}*"
     )
-
   msg = "\n".join(righe)
   invia_telegram(CANALE_ACCUMULAZIONE_ID, msg)
   corpo_email_testo += msg.replace("**", "").replace("*", "")
