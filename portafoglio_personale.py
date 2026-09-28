@@ -63,10 +63,10 @@ MEI_PORTAFOGLIO_CONFIG = {
     "UPST": {"pmc": 23.99, "proprietario": "Me", "core": True},
     "HTZ": {"pmc": 2.83, "proprietario": "Me", "core": True},
     
-    # Titoli di Gabri
+    # Titoli di Gabri (Regola: devono volare, zero lateralizzazione)
     "POET": {"pmc": 7.24, "proprietario": "Gabri"},
     
-    # Titoli di Greg
+    # Titoli di Greg (Regola: devono volare, zero lateralizzazione)
     "NVDA": {"pmc": 184.62, "proprietario": "Greg"},
 }
 
@@ -118,19 +118,43 @@ def ottieni_tasso_cambio_eur_usd():
   return 1.08
 
 # =====================================================================
-# ANALISI TECNICA & VOLUMI AVANZATA (Market Screener Integration)
+# ANALISI TECNICA, VOLUMI & NUOVE METRICHE AVANZATE
 # =====================================================================
 def calcola_rsi(chiusure, periodi=14):
   delta = chiusure.diff()
   guadagno = (delta.where(delta > 0, 0)).rolling(window=periodi).mean()
   perdita = (-delta.where(delta < 0, 0)).rolling(window=periodi).mean()
-  rs = guadagno / (perdita + 1e-10)
+  rs = guadagno / perdita
   return 100 - (100 / (1 + rs))
 
 def calcola_cmf(massimi, minimi, chiusure, volumi, periodi=20):
   mf_multiplier = ((chiusure - minimi) - (massimi - chiusure)) / (massimi - minimi + 1e-10)
+  mf_multiplier = mf_multiplier.fillna(0)
   mf_volume = mf_multiplier * volumi
   return mf_volume.rolling(window=periodi).sum() / (volumi.rolling(window=periodi).sum() + 1e-10)
+
+def calcola_vwap_periodo(massimi, minimi, chiusure, volumi, periodi=60):
+  """Calcola il VWAP istituzionale basato sugli ultimi periodi (es. 60 sedute / trimestrale)."""
+  typical_price = (massimi + minimi + chiusure) / 3.0
+  tp_vol = (typical_price * volumi).rolling(window=periodi).sum()
+  vol_sum = volumi.rolling(window=periodi).sum() + 1e-10
+  return tp_vol / vol_sum
+
+def calcola_atr(massimi, minimi, chiusure, periodi=14):
+  """Calcola l'Average True Range (ATR) per la volatilità dinamica."""
+  tr1 = massimi - minimi
+  tr2 = (massimi - chiusure.shift()).abs()
+  tr3 = (minimi - chiusure.shift()).abs()
+  tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+  return tr.rolling(window=periodi).mean()
+
+def calcola_forza_relativa(chiusure_titolo, chiusure_benchmark, periodi=60):
+  """Calcola la Forza Relativa (RS) a N giorni rispetto all'indice di riferimento."""
+  if len(chiusure_titolo) < periodi or len(chiusure_benchmark) < periodi:
+    return 0.0
+  perf_titolo = (chiusure_titolo.iloc[-1] / chiusure_titolo.iloc[-periodi]) - 1
+  perf_bench = (chiusure_benchmark.iloc[-1] / chiusure_benchmark.iloc[-periodi]) - 1
+  return round((perf_titolo - perf_bench) * 100, 2)
 
 def analizza_trend_volumi_5g(volumi_ser):
   if len(volumi_ser) < 5:
@@ -165,49 +189,6 @@ def calcola_pendenza_regressione_volumi(volumi_ser, periodi):
   else:
     return "Stabile ➡️"
 
-def rileva_divergenza_cmf(df, lookback=15):
-  if len(df) < lookback + 5:
-    return "Assente"
-  sub_df = df.iloc[-lookback:].copy()
-  prices = sub_df["Close"].values
-  cmf_vals = sub_df["CMF"].values
-  p_min1, p_min2 = np.min(prices[:lookback // 2]), np.min(prices[lookback // 2:])
-  c_min1, c_min2 = np.min(cmf_vals[:lookback // 2]), np.min(cmf_vals[lookback // 2:])
-  p_max1, p_max2 = np.max(prices[:lookback // 2]), np.max(prices[lookback // 2:])
-  c_max1, c_max2 = np.max(cmf_vals[:lookback // 2]), np.max(cmf_vals[lookback // 2:])
-  if p_min2 < p_min1 and c_min2 > c_min1:
-    return "Rialzista 🟢"
-  if p_max2 > p_max1 and c_max2 < c_max1:
-    return "Ribassista 🔴"
-  return "Assente"
-
-def calcola_volatilita_squeeze(df, length=20):
-  try:
-    sma = df['Close'].rolling(window=length).mean()
-    std = df['Close'].rolling(window=length).std()
-    bb_upper, bb_lower = sma + (2 * std), sma - (2 * std)
-    atr = (df['High'] - df['Low']).combine((df['High'] - df['Close'].shift()).abs(), max).combine((df['Low'] - df['Close'].shift()).abs(), max).rolling(window=length).mean()
-    kc_upper, kc_lower = sma + (1.5 * atr), sma - (1.5 * atr)
-    return (bb_upper.iloc[-1] <= kc_upper.iloc[-1]) and (bb_lower.iloc[-1] >= kc_lower.iloc[-1])
-  except Exception:
-    return False
-
-def verifica_salute_finanziaria_intelligente(t_obj, cmf_val):
-  try:
-    info = t_obj.info or {}
-    revenue_growth = info.get('revenueGrowth', None)
-    debt_to_equity = info.get('debtToEquity', None)
-    earnings_growth = info.get('earningsGrowth', None)
-    if revenue_growth is not None and revenue_growth < -0.30 and cmf_val < 0.10:
-      return False, "Crollo ricavi senza supporto istituzionale."
-    if debt_to_equity is not None and debt_to_equity > 400 and cmf_val < 0.05:
-      return False, "Indice di indebitamento critico."
-    if earnings_growth is not None and earnings_growth < -0.35 and cmf_val < 0.05:
-      return False, "Utili in forte calo senza flussi a favore."
-    return True, "Azienda solida o in investimento."
-  except Exception:
-    return True, "Dati fondamentali parziali."
-
 def ottieni_dati_fondamentali_e_anagrafica(ticker_obj, ticker_str):
   nome_azienda = ""
   fwd_pe = "N/D"
@@ -225,7 +206,7 @@ def ottieni_dati_fondamentali_e_anagrafica(ticker_obj, ticker_str):
   return (f"{ticker_str} - {nome_azienda}" if nome_azienda else ticker_str), fwd_pe, peg, short_pct
 
 # =====================================================================
-# MOTORE DI SUGGERIMENTO IBRIDO POTENZIATO
+# MOTORE DI SUGGERIMENTO IBRIDO (CON INCROCIO METRICHE AVANZATE)
 # =====================================================================
 def genera_suggerimento_ibrido(c):
   proprietario = c["proprietario"]
@@ -237,67 +218,51 @@ def genera_suggerimento_ibrido(c):
   storno = c["storno"]  
   pnl_pct = c["pnl_pct"]
   trend_5g = c.get("trend_volumi_5g", "Stabile ➡️")
-  reg_20g = c.get("reg_vol_20g", "Stabile ➡️")
   reg_50g = c.get("reg_vol_50g", "Stabile ➡️")
-  divergenza = c.get("divergenza_cmf", "Assente")
-  is_squeeze = c.get("is_squeeze", False)
-  short_pct = c.get("short_pct", "N/D")
-  is_sano = c.get("is_sano", True)
-  nota_bilancio = c.get("nota_bilancio", "")
+  rs = c.get("forza_relativa", 0.0)
+  sopra_vwap = c.get("sopra_vwap", True)
+  short_pct = c.get("short_pct", 0.0)
 
-  # 🚨 ALLARME FONDAMENTALE (Se l'azienda mostra crepe strutturali gravi)
-  if not is_sano and cmf < 0:
-    return f"⚠️ [ALLARME FONDAMENTALE]: {nota_bilancio} Valuta disinvestimento o rotazione immediata."
-
-  # 🚀 LOGICA FIGLI (GABRI / GREG): MASSIMA VELOCITÀ, SQUEEZE & ZERO LATERALITÀ
+  # 🚀 LOGICA FIGLI (GABRI / GREG): MASSIMA VELOCITÀ & FORZA RELATIVA
   if proprietario in ["Gabri", "Greg"]:
-    if short_pct != "N/D" and short_pct > 10 and is_squeeze and trend_5g == "In Accelerazione 📈":
-      return f"🔥 [{proprietario.upper()} - SQUEEZE ESPLOSIVO]: Volatilità compressa e volumi in forte accelerazione. Tieni duro e fai correre!"
-    if divergenza == "Rialzista 🟢" and storno >= 10.0:
-      return f"💎 [{proprietario.upper()} - ACCUMULO ISTITUZIONALE SU STORNO]: Storna del -{storno:.1f}% ma c'è divergenza CMF rialzista. Ottimo per tenere o mediare!"
-    if is_bear or storno >= 15.0 or cmf < -0.02 or trend_5g == "In Raffreddamento 📉" or reg_20g == "In Esaurimento 📉":
+    if is_bear or storno >= 15.0 or cmf < -0.02 or trend_5g == "In Raffreddamento 📉" or rs < -5.0:
       return (
-          f"🚨 [{proprietario.upper()} - VENDI / RUOTA]: Il titolo rallenta o storna (-{storno:.1f}%)."
-          " Stop alla lateralizzazione: **vendi adesso** per reinvestire su chi corre!"
+          f"🚨 [{proprietario.upper()} - VENDI / RUOTA]: Il titolo perde forza relativa (RS {rs:+.1f}%) o storna (-{storno:.1f}%)."
+          " Stop alla lateralizzazione: **vendi adesso** per reinvestire sui veri leader!"
       )
-    elif rsi > 75 or vsa == "🔴 DISTRIBUZIONE":
+    elif rsi > 75 or vsa == "🔴 DISTRIBUZIONE / VENDITA":
       return (
           f"💰 [{proprietario.upper()} - PRENDI PROFITTO]: Area di massimo (RSI {rsi:.1f})."
           " Incassa e ruota sul prossimo cavallo vincente."
       )
-    elif not is_bear and cmf > 0.05:
+    elif not is_bear and cmf > 0.05 and trend_5g == "In Accelerazione 📈" and rs > 0:
       return (
-          f"🚀 [{proprietario.upper()} - IN SPINTA]: Trend solido e flussi a favore."
+          f"🚀 [{proprietario.upper()} - IN SPINTA & LEADER]: Trend aggressivo e RS positiva ({rs:+.1f}%)."
           " Lascia correre il profitto!"
       )
 
-  # 🧑 LOGICA PERSONALE ("ME"): GESTIONE STANDARD / CORE / TATTICO
+  # 🧑 LOGICA PERSONALE ("ME"): GESTIONE STANDARD / CORE + FILTRO VWAP E ATR
   if is_core:
     if storno >= 35.0:
-      if is_bear and cmf < -0.05 and reg_50g == "In Esaurimento 📉":
-        return f"⚠️ [ALLARME CORE - ROTTURA STRUTTURALE (-{storno:.1f}%)]: Valuta alleggerimento."
+      if is_bear and cmf < -0.05 and reg_50g == "In Esaurimento 📉" and not sopra_vwap:
+        return f"⚠️ [ALLARME CORE - ROTTURA SOTTO VWAP E REGRESSIONE (-{storno:.1f}%)]: Valuta alleggerimento."
       else:
-        return f"🛡️ [CORE IN SCONTO (-{storno:.1f}%)]: Mantieni o accumula (DCA)."
+        return f"🛡️ [CORE IN SCONTO (-{storno:.1f}%)]: Sopra il VWAP istituzionale. Mantieni o accumula (DCA)."
     elif storno >= 20.0:
-      return f"💎 [CORE IN CORREZIONE (-{storno:.1f}%)]: Storno fisiologico, tesi intatta."
-      
-  if divergenza == "Rialzista 🟢":
-    return f"🚀 [OCCASIONE D'ORO]: Divergenza CMF rialzista attiva in area di storno (-{storno:.1f}%). Accumulo intelligente."
-    
-  if (rsi > 78 or (storno < 3.0 and rsi > 72)) and (cmf < -0.02 or vsa == "🔴 DISTRIBUZIONE"):
+      return f"💎 [CORE IN CORREZIONE (-{storno:.1f}%)]: Storno fisiologico, tesi istituzionale intatta."
+
+  if (rsi > 78 or (storno < 3.0 and rsi > 72)) and (cmf < -0.02 or vsa == "🔴 DISTRIBUZIONE / VENDITA"):
     return f"💰 [ZONA CALDA - PRENDI PROFITTO]: Titolo tirato (RSI {rsi:.1f}). Alleggerisci la quota."
-    
   if pnl_pct != "N/D" and pnl_pct > 50.0 and not is_bear:
     return f"🚀 [GAIN STRAORDINARIO (+{pnl_pct:.1f}%)]: Fai correre i profitti."
-    
-  if not is_bear and cmf > 0.05 and vsa == "🟢 ACCUMULAZIONE PULITA":
-    return "🟢 [ACCUMULO ATTIVO]: Trend e flussi istituzionali sani."
-  elif cmf >= 0.0 and storno >= 12.0:
-    return "💎 [SCONTO STRATEGICO]: Storno salutare con assorbimento istituzionale."
-  elif vsa == "🔴 DISTRIBUZIONE" or cmf < -0.05:
-    return "🔴 [DISTRIBUZIONE]: Flussi negativi. Evita di mediare."
+  if not is_bear and cmf > 0.05 and vsa == "🟢 ACCUMULAZIONE PULITA" and sopra_vwap:
+    return f"🟢 [ACCUMULO ATTIVO]: Trend sano, sopra VWAP e RS a {rs:+.1f}%."
+  elif cmf >= 0.0 and storno >= 12.0 and sopra_vwap:
+    return "💎 [SCONTO STRATEGICO]: Storno salutare con tenuta del VWAP istituzionale."
+  elif vsa == "🔴 DISTRIBUZIONE / VENDITA" or cmf < -0.05 or not sopra_vwap:
+    return "🔴 [DISTRIBUZIONE / SOTTO VWAP]: Flussi negativi e perdita dei livelli chiave. Evita di mediare."
   else:
-    if rsi < 30: return "🟡 [AREA IPERVENDUTO]: Monitorare per rimbalzo."
+    if rsi < 30: return "🟡 [AREA IPERVENDUTO]: Monitorare per rimbalzo tecnico."
     return "🟡 [FASE NEUTRA]: Mantenere la posizione senza fretta."
 
 # =====================================================================
@@ -310,18 +275,30 @@ def main():
     return
   
   eur_usd_rate = ottieni_tasso_cambio_eur_usd()
-  print(f"🚀 Avvio scansione portafogli familiari potenziata (Cambio EUR/USD: {eur_usd_rate:.4f})...")
+  print(f"🚀 Avvio scansione portafogli familiari con metriche avanzate (Cambio EUR/USD: {eur_usd_rate:.4f})...")
   
+  # Scarichiamo anche il benchmark (S&P 500 - SPY) per il calcolo della Forza Relativa
+  full_tickers = tickers + ["SPY"]
   try:
-    df_raw = yf.download(tickers, period="1y", auto_adjust=True, progress=False)
+    df_raw = yf.download(full_tickers, period="1y", auto_adjust=True, progress=False)
   except Exception as e:
     print(f"Errore download: {e}")
     return
     
+  # Estrazione benchmark SPY per Forza Relativa
+  try:
+    if len(full_tickers) == 1:
+      df_spy_close = df_raw["Close"]
+    else:
+      df_spy_close = df_raw["Close"]["SPY"] if "Close" in df_raw else df_raw.xs("SPY", axis=1, level=1)["Close"]
+      df_spy_close = df_spy_close.dropna()
+  except Exception:
+    df_spy_close = pd.Series(dtype=float)
+
   candidati = []
   for ticker_str in tickers:
     try:
-      if len(tickers) == 1:
+      if len(full_tickers) == 1:
         df_close, df_volume, df_high, df_low = df_raw["Close"], df_raw["Volume"], df_raw["High"], df_raw["Low"]
       else:
         df_close = df_raw["Close"][ticker_str] if "Close" in df_raw else df_raw.xs(ticker_str, axis=1, level=1)["Close"]
@@ -347,9 +324,8 @@ def main():
       else:
         pnl_pct = "N/D"
         
-      # Indicatori tecnici avanzati
+      # Calcolo metriche avanzate
       trend_volumi_5g = analizza_trend_volumi_5g(volumi)
-      reg_vol_20g = calcola_pendenza_regressione_volumi(volumi, 20)
       reg_vol_50g = calcola_pendenza_regressione_volumi(volumi, 50)
       
       t_obj = yf.Ticker(ticker_str)
@@ -361,19 +337,20 @@ def main():
       
       cmf_val = 0.0
       if len(volumi) >= 20:
-        # Prepariamo un dataframe temporaneo per calcolare la divergenza CMF e lo Squeeze
-        df_temp = pd.DataFrame({'Close': chiusure, 'High': massimi, 'Low': minimi, 'Volume': volumi})
-        df_temp['CMF'] = calcola_cmf(df_temp['High'], df_temp['Low'], df_temp['Close'], df_temp['Volume'])
-        cmf_val = float(df_temp['CMF'].iloc[-1])
-        divergenza = rileva_divergenza_cmf(df_temp)
-        is_squeeze = calcola_volatilita_squeeze(df_temp)
-      else:
-        divergenza = "Assente"
-        is_squeeze = False
-
-      is_sano, nota_bilancio = verifica_salute_finanziaria_intelligente(t_obj, cmf_val)
-      vsa_rating = "🟢 ACCUMULAZIONE PULITA" if cmf_val > 0.05 else ("🔴 DISTRIBUZIONE" if cmf_val < -0.05 else "🟡 NEUTRO")
+        cmf_val = float(calcola_cmf(massimi, minimi, chiusure, volumi, periodi=20).iloc[-1])
         
+      vsa_rating = "🟢 ACCUMULAZIONE PULITA" if cmf_val > 0.05 else ("🔴 DISTRIBUZIONE / VENDITA" if cmf_val < -0.05 else "🟡 NEUTRO / VOLATILITÀ")
+      
+      # 📈 Nuove metriche integrate
+      vwap_serie = calcola_vwap_periodo(massimi, minimi, chiusure, volumi, periodi=60)
+      vwap_val = float(vwap_serie.iloc[-1]) if not vwap_serie.empty and not np.isnan(vwap_serie.iloc[-1]) else prezzo_attuale
+      sopra_vwap = prezzo_attuale >= vwap_val
+      
+      atr_serie = calcola_atr(massimi, minimi, chiusure, periodi=14)
+      atr_val = float(atr_serie.iloc[-1]) if not atr_serie.empty and not np.isnan(atr_serie.iloc[-1]) else 0.0
+      
+      forza_relativa = calcola_forza_relativa(chiusure, df_spy_close, periodi=60) if not df_spy_close.empty else 0.0
+
       diz_candidato = {
           "ticker_raw": ticker_str,
           "ticker_display": ticker_display,
@@ -386,15 +363,14 @@ def main():
           "storno": storno_pct,
           "is_bear": is_bear_market,
           "trend_volumi_5g": trend_volumi_5g,
-          "reg_vol_20g": reg_vol_20g,
           "reg_vol_50g": reg_vol_50g,
           "cmf": cmf_val,
           "vsa_rating": vsa_rating,
-          "divergenza_cmf": divergenza,
-          "is_squeeze": is_squeeze,
-          "short_pct": short_pct,
-          "is_sano": is_sano,
-          "nota_bilancio": nota_bilancio
+          "forza_relativa": forza_relativa,
+          "vwap": vwap_val,
+          "sopra_vwap": sopra_vwap,
+          "atr": atr_val,
+          "short_pct": short_pct if isinstance(short_pct, (int, float)) else 0.0,
       }
       diz_candidato["suggerimento"] = genera_suggerimento_ibrido(diz_candidato)
       candidati.append(diz_candidato)
@@ -404,7 +380,7 @@ def main():
       
   if not candidati: return
   
-  # EXCEL REPORT CON COLONNA DEDICATA AL PROPRIETARIO
+  # EXCEL REPORT CON COLONNA DEDICATA AL PROPRIETARIO E NUOVE METRICHE
   data_odierna = datetime.now().strftime("%Y-%m-%d")
   excel_filename = f"Report_Portafogli_Famiglia_{data_odierna}.xlsx"
   excel_data = []
@@ -416,26 +392,27 @@ def main():
         "Profilo Asset": "⭐ CORE (Lungo Termine)" if c["is_core"] else ("🚀 CRESCITA RAPIDA" if c["proprietario"] in ["Gabri", "Greg"] else "💼 Tattico"),
         "Prezzo Attuale ($)": round(c["prezzo"], 2),
         "Performance P&L (%)": f"{c['pnl_pct']:+.1f}%" if isinstance(c["pnl_pct"], (int, float)) else "N/D",
+        "Forza Relativa (RS 60G)": f"{c['forza_relativa']:+.1f}%",
+        "Sopra VWAP Trimestrale?": "Sì 🟢" if c["sopra_vwap"] else "No 🔴",
+        "ATR (Volatilità 14G)": round(c["atr"], 2),
         "Trend Volumi 5G": c["trend_volumi_5g"],
         "Analisi VSA": c["vsa_rating"],
-        "Divergenza CMF": c["divergenza_cmf"],
-        "Squeeze Volatilità": "Attivo 🔥" if c["is_squeeze"] else "No",
         "Suggerimento / Action": c["suggerimento"],
     })
     
   df_excel = pd.DataFrame(excel_data)
   df_excel.to_excel(excel_filename, index=False)
-  print(f"📊 Excel generato con successo: {excel_filename}")
-  
+  print(f"📊 Excel generato con successo con metriche avanzate: {excel_filename}")
+
   # NOTIFICHE TELEGRAM & EMAIL
-  righe = [f"📊 **MONITOR PORTAFOGLI FAMIGLIA - {data_odierna}**\n"]
+  righe = [f"📊 **MONITOR PORTAFOGLI FAMIGLIA (ADVANCED) - {data_odierna}**\n"]
   for c in candidati:
     tag = f"👶 [{c['proprietario'].upper()}]" if c["proprietario"] in ["Gabri", "Greg"] else "🧑 [ME]"
-    righe.append(f"• {tag} **{c['ticker_raw']}** (${c['prezzo']:.1f}) ➔ *{c['suggerimento']}*")
+    righe.append(f"• {tag} **{c['ticker_raw']}** (${c['prezzo']:.1f} | RS: {c['forza_relativa']:+.1f}%) ➔ *{c['suggerimento']}*")
     
   msg = "\n".join(righe)
   invia_telegram(CANALE_ACCUMULAZIONE_ID, msg)
-  invia_email_con_allegato(f"📈 Report Portafogli Famiglia - {data_odierna}", msg.replace("**","").replace("*",""), excel_filename)
+  invia_email_con_allegato(f"📈 Report Portafogli Famiglia Avanzato - {data_odierna}", msg.replace("**","").replace("*",""), excel_filename)
 
 if __name__ == "__main__":
   main()
