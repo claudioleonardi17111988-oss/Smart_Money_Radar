@@ -63,10 +63,10 @@ MEI_PORTAFOGLIO_CONFIG = {
     "UPST": {"pmc": 23.99, "proprietario": "Me", "core": True},
     "HTZ": {"pmc": 2.83, "proprietario": "Me", "core": True},
     
-    # Titoli di Gabri (Regola: devono volare, zero lateralizzazione)
+    # Titoli di Gabri
     "POET": {"pmc": 7.24, "proprietario": "Gabri"},
     
-    # Titoli di Greg (Regola: devono volare, zero lateralizzazione)
+    # Titoli di Greg
     "NVDA": {"pmc": 184.62, "proprietario": "Greg"},
 }
 
@@ -118,7 +118,7 @@ def ottieni_tasso_cambio_eur_usd():
   return 1.08
 
 # =====================================================================
-# ANALISI TECNICA, VOLUMI & NUOVE METRICHE AVANZATE
+# ANALISI TECNICA & VOLUMI
 # =====================================================================
 def calcola_rsi(chiusure, periodi=14):
   delta = chiusure.diff()
@@ -128,33 +128,10 @@ def calcola_rsi(chiusure, periodi=14):
   return 100 - (100 / (1 + rs))
 
 def calcola_cmf(massimi, minimi, chiusure, volumi, periodi=20):
-  mf_multiplier = ((chiusure - minimi) - (massimi - chiusure)) / (massimi - minimi + 1e-10)
+  mf_multiplier = ((chiusure - minimi) - (massimi - chiusure)) / (massimi - minimi)
   mf_multiplier = mf_multiplier.fillna(0)
   mf_volume = mf_multiplier * volumi
-  return mf_volume.rolling(window=periodi).sum() / (volumi.rolling(window=periodi).sum() + 1e-10)
-
-def calcola_vwap_periodo(massimi, minimi, chiusure, volumi, periodi=60):
-  """Calcola il VWAP istituzionale basato sugli ultimi periodi (es. 60 sedute / trimestrale)."""
-  typical_price = (massimi + minimi + chiusure) / 3.0
-  tp_vol = (typical_price * volumi).rolling(window=periodi).sum()
-  vol_sum = volumi.rolling(window=periodi).sum() + 1e-10
-  return tp_vol / vol_sum
-
-def calcola_atr(massimi, minimi, chiusure, periodi=14):
-  """Calcola l'Average True Range (ATR) per la volatilità dinamica."""
-  tr1 = massimi - minimi
-  tr2 = (massimi - chiusure.shift()).abs()
-  tr3 = (minimi - chiusure.shift()).abs()
-  tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-  return tr.rolling(window=periodi).mean()
-
-def calcola_forza_relativa(chiusure_titolo, chiusure_benchmark, periodi=60):
-  """Calcola la Forza Relativa (RS) a N giorni rispetto all'indice di riferimento."""
-  if len(chiusure_titolo) < periodi or len(chiusure_benchmark) < periodi:
-    return 0.0
-  perf_titolo = (chiusure_titolo.iloc[-1] / chiusure_titolo.iloc[-periodi]) - 1
-  perf_bench = (chiusure_benchmark.iloc[-1] / chiusure_benchmark.iloc[-periodi]) - 1
-  return round((perf_titolo - perf_bench) * 100, 2)
+  return mf_volume.rolling(window=periodi).sum() / volumi.rolling(window=periodi).sum()
 
 def analizza_trend_volumi_5g(volumi_ser):
   if len(volumi_ser) < 5:
@@ -206,7 +183,7 @@ def ottieni_dati_fondamentali_e_anagrafica(ticker_obj, ticker_str):
   return (f"{ticker_str} - {nome_azienda}" if nome_azienda else ticker_str), fwd_pe, peg, short_pct
 
 # =====================================================================
-# MOTORE DI SUGGERIMENTO IBRIDO (CON INCROCIO METRICHE AVANZATE)
+# MOTORE DI SUGGERIMENTO IBRIDO (CHIRURGICO SU FOMO / ESAURIMENTO)
 # =====================================================================
 def genera_suggerimento_ibrido(c):
   proprietario = c["proprietario"]
@@ -219,51 +196,45 @@ def genera_suggerimento_ibrido(c):
   pnl_pct = c["pnl_pct"]
   trend_5g = c.get("trend_volumi_5g", "Stabile ➡️")
   reg_50g = c.get("reg_vol_50g", "Stabile ➡️")
-  rs = c.get("forza_relativa", 0.0)
-  sopra_vwap = c.get("sopra_vwap", True)
-  short_pct = c.get("short_pct", 0.0)
+  
+  # 🚨 1. CONDIZIONE CHIRURGICA DI VENDITA: FOMO / IPERCOMPRATO SENZA VOLUMI DI SUPPORTO
+  fomo_esaurimento = (rsi > 76) and (cmf < 0.0 or vsa == "🔴 DISTRIBUZIONE / VENDITA" or trend_5g == "In Raffreddamento 📉")
+  
+  if fomo_esaurimento:
+    return (
+        f"🚨 [{proprietario.upper()} - VENDI / PRENDI PROFITTO (FOMO & ESAURIMENTO VOLUMI)]: "
+        f"Ipercomprato (RSI {rsi:.1f}) con volumi deboli o in scarico. "
+        f"Il prezzo sale per inerzia: alto rischio di correzione!"
+    )
 
-  # 🚀 LOGICA FIGLI (GABRI / GREG): MASSIMA VELOCITÀ & FORZA RELATIVA
+  # ⚠️ 2. ALLARME STRUTTURALE DI LUNGO (Solo in caso di crollo profondo e flussi negativi pesanti)
+  if storno >= 35.0 and (vsa == "🔴 DISTRIBUZIONE / VENDITA" and cmf < -0.05):
+    return (
+        f"⚠️ [{proprietario.upper()} - ALLARME STRUTTURALE (-{storno:.1f}%)]: "
+        f"Storno profondo e flussi istituzionali negativi. Valuta la rotazione."
+    )
+
+  # 🚀 3. TREND SANO E IN SPINTA
+  if not is_bear and cmf > 0.03 and trend_5g == "In Accelerazione 📈":
+    return (
+        f"🚀 [{proprietario.upper()} - IN SPINTA]: Trend solido sostenuto da volumi veri."
+        f" Lascia correre il profitto!"
+    )
+  
+  # 💎 4. GESTIONE PAZIENTE PER GABRI E GREG (Nessun panico per normali correzioni)
   if proprietario in ["Gabri", "Greg"]:
-    if is_bear or storno >= 15.0 or cmf < -0.02 or trend_5g == "In Raffreddamento 📉" or rs < -5.0:
-      return (
-          f"🚨 [{proprietario.upper()} - VENDI / RUOTA]: Il titolo perde forza relativa (RS {rs:+.1f}%) o storna (-{storno:.1f}%)."
-          " Stop alla lateralizzazione: **vendi adesso** per reinvestire sui veri leader!"
-      )
-    elif rsi > 75 or vsa == "🔴 DISTRIBUZIONE / VENDITA":
-      return (
-          f"💰 [{proprietario.upper()} - PRENDI PROFITTO]: Area di massimo (RSI {rsi:.1f})."
-          " Incassa e ruota sul prossimo cavallo vincente."
-      )
-    elif not is_bear and cmf > 0.05 and trend_5g == "In Accelerazione 📈" and rs > 0:
-      return (
-          f"🚀 [{proprietario.upper()} - IN SPINTA & LEADER]: Trend aggressivo e RS positiva ({rs:+.1f}%)."
-          " Lascia correre il profitto!"
-      )
-
-  # 🧑 LOGICA PERSONALE ("ME"): GESTIONE STANDARD / CORE + FILTRO VWAP E ATR
-  if is_core:
-    if storno >= 35.0:
-      if is_bear and cmf < -0.05 and reg_50g == "In Esaurimento 📉" and not sopra_vwap:
-        return f"⚠️ [ALLARME CORE - ROTTURA SOTTO VWAP E REGRESSIONE (-{storno:.1f}%)]: Valuta alleggerimento."
-      else:
-        return f"🛡️ [CORE IN SCONTO (-{storno:.1f}%)]: Sopra il VWAP istituzionale. Mantieni o accumula (DCA)."
-    elif storno >= 20.0:
-      return f"💎 [CORE IN CORREZIONE (-{storno:.1f}%)]: Storno fisiologico, tesi istituzionale intatta."
-
-  if (rsi > 78 or (storno < 3.0 and rsi > 72)) and (cmf < -0.02 or vsa == "🔴 DISTRIBUZIONE / VENDITA"):
-    return f"💰 [ZONA CALDA - PRENDI PROFITTO]: Titolo tirato (RSI {rsi:.1f}). Alleggerisci la quota."
-  if pnl_pct != "N/D" and pnl_pct > 50.0 and not is_bear:
-    return f"🚀 [GAIN STRAORDINARIO (+{pnl_pct:.1f}%)]: Fai correre i profitti."
-  if not is_bear and cmf > 0.05 and vsa == "🟢 ACCUMULAZIONE PULITA" and sopra_vwap:
-    return f"🟢 [ACCUMULO ATTIVO]: Trend sano, sopra VWAP e RS a {rs:+.1f}%."
-  elif cmf >= 0.0 and storno >= 12.0 and sopra_vwap:
-    return "💎 [SCONTO STRATEGICO]: Storno salutare con tenuta del VWAP istituzionale."
-  elif vsa == "🔴 DISTRIBUZIONE / VENDITA" or cmf < -0.05 or not sopra_vwap:
-    return "🔴 [DISTRIBUZIONE / SOTTO VWAP]: Flussi negativi e perdita dei livelli chiave. Evita di mediare."
+    return (
+        f"💎 [{proprietario.upper()} - RESPIRO O ACCUMULO]: Storno fisiologico (-{storno:.1f}%) o laterale sano. "
+        f"Nessuna FOMO tossica rilevata: tieni la posizione e pazienta per il prossimo impulso."
+    )
+  
+  # 🧑 5. GESTIONE PERSONALIZZATA ("ME": CORE / TATTICO)
+  if is_core and storno >= 25.0:
+    return f"💎 [CORE IN CORREZIONE (-{storno:.1f}%)]: Fisiologico, tesi pluriennale intatta."
+  elif cmf >= -0.01 and storno >= 12.0:
+    return "💎 [SCONTO STRATEGICO]: Fase di respiro con assorbimento sano, mantieni o incrementa."
   else:
-    if rsi < 30: return "🟡 [AREA IPERVENDUTO]: Monitorare per rimbalzo tecnico."
-    return "🟡 [FASE NEUTRA]: Mantenere la posizione senza fretta."
+    return "🟡 [FASE DI PAZIENZA]: Mantenere la posizione in portafoglio senza fretta."
 
 # =====================================================================
 # MAIN FUNCTION
@@ -275,30 +246,18 @@ def main():
     return
   
   eur_usd_rate = ottieni_tasso_cambio_eur_usd()
-  print(f"🚀 Avvio scansione portafogli familiari con metriche avanzate (Cambio EUR/USD: {eur_usd_rate:.4f})...")
+  print(f"🚀 Avvio scansione portafogli familiari (Cambio EUR/USD: {eur_usd_rate:.4f})...")
   
-  # Scarichiamo anche il benchmark (S&P 500 - SPY) per il calcolo della Forza Relativa
-  full_tickers = tickers + ["SPY"]
   try:
-    df_raw = yf.download(full_tickers, period="1y", auto_adjust=True, progress=False)
+    df_raw = yf.download(tickers, period="1y", auto_adjust=True, progress=False)
   except Exception as e:
     print(f"Errore download: {e}")
     return
     
-  # Estrazione benchmark SPY per Forza Relativa
-  try:
-    if len(full_tickers) == 1:
-      df_spy_close = df_raw["Close"]
-    else:
-      df_spy_close = df_raw["Close"]["SPY"] if "Close" in df_raw else df_raw.xs("SPY", axis=1, level=1)["Close"]
-      df_spy_close = df_spy_close.dropna()
-  except Exception:
-    df_spy_close = pd.Series(dtype=float)
-
   candidati = []
   for ticker_str in tickers:
     try:
-      if len(full_tickers) == 1:
+      if len(tickers) == 1:
         df_close, df_volume, df_high, df_low = df_raw["Close"], df_raw["Volume"], df_raw["High"], df_raw["Low"]
       else:
         df_close = df_raw["Close"][ticker_str] if "Close" in df_raw else df_raw.xs(ticker_str, axis=1, level=1)["Close"]
@@ -324,10 +283,8 @@ def main():
       else:
         pnl_pct = "N/D"
         
-      # Calcolo metriche avanzate
       trend_volumi_5g = analizza_trend_volumi_5g(volumi)
       reg_vol_50g = calcola_pendenza_regressione_volumi(volumi, 50)
-      
       t_obj = yf.Ticker(ticker_str)
       ticker_display, fwd_pe, peg, short_pct = ottieni_dati_fondamentali_e_anagrafica(t_obj, ticker_str)
       
@@ -339,18 +296,8 @@ def main():
       if len(volumi) >= 20:
         cmf_val = float(calcola_cmf(massimi, minimi, chiusure, volumi, periodi=20).iloc[-1])
         
-      vsa_rating = "🟢 ACCUMULAZIONE PULITA" if cmf_val > 0.05 else ("🔴 DISTRIBUZIONE / VENDITA" if cmf_val < -0.05 else "🟡 NEUTRO / VOLATILITÀ")
-      
-      # 📈 Nuove metriche integrate
-      vwap_serie = calcola_vwap_periodo(massimi, minimi, chiusure, volumi, periodi=60)
-      vwap_val = float(vwap_serie.iloc[-1]) if not vwap_serie.empty and not np.isnan(vwap_serie.iloc[-1]) else prezzo_attuale
-      sopra_vwap = prezzo_attuale >= vwap_val
-      
-      atr_serie = calcola_atr(massimi, minimi, chiusure, periodi=14)
-      atr_val = float(atr_serie.iloc[-1]) if not atr_serie.empty and not np.isnan(atr_serie.iloc[-1]) else 0.0
-      
-      forza_relativa = calcola_forza_relativa(chiusure, df_spy_close, periodi=60) if not df_spy_close.empty else 0.0
-
+      vsa_rating = "🟢 ACCUMULAZIONE PULITA" if cmf_val > 0.03 else ("🔴 DISTRIBUZIONE / VENDITA" if cmf_val < -0.03 else "🟡 NEUTRO / VOLATILITÀ")
+        
       diz_candidato = {
           "ticker_raw": ticker_str,
           "ticker_display": ticker_display,
@@ -366,11 +313,6 @@ def main():
           "reg_vol_50g": reg_vol_50g,
           "cmf": cmf_val,
           "vsa_rating": vsa_rating,
-          "forza_relativa": forza_relativa,
-          "vwap": vwap_val,
-          "sopra_vwap": sopra_vwap,
-          "atr": atr_val,
-          "short_pct": short_pct if isinstance(short_pct, (int, float)) else 0.0,
       }
       diz_candidato["suggerimento"] = genera_suggerimento_ibrido(diz_candidato)
       candidati.append(diz_candidato)
@@ -380,7 +322,7 @@ def main():
       
   if not candidati: return
   
-  # EXCEL REPORT CON COLONNA DEDICATA AL PROPRIETARIO E NUOVE METRICHE
+  # EXCEL REPORT
   data_odierna = datetime.now().strftime("%Y-%m-%d")
   excel_filename = f"Report_Portafogli_Famiglia_{data_odierna}.xlsx"
   excel_data = []
@@ -392,9 +334,6 @@ def main():
         "Profilo Asset": "⭐ CORE (Lungo Termine)" if c["is_core"] else ("🚀 CRESCITA RAPIDA" if c["proprietario"] in ["Gabri", "Greg"] else "💼 Tattico"),
         "Prezzo Attuale ($)": round(c["prezzo"], 2),
         "Performance P&L (%)": f"{c['pnl_pct']:+.1f}%" if isinstance(c["pnl_pct"], (int, float)) else "N/D",
-        "Forza Relativa (RS 60G)": f"{c['forza_relativa']:+.1f}%",
-        "Sopra VWAP Trimestrale?": "Sì 🟢" if c["sopra_vwap"] else "No 🔴",
-        "ATR (Volatilità 14G)": round(c["atr"], 2),
         "Trend Volumi 5G": c["trend_volumi_5g"],
         "Analisi VSA": c["vsa_rating"],
         "Suggerimento / Action": c["suggerimento"],
@@ -402,17 +341,17 @@ def main():
     
   df_excel = pd.DataFrame(excel_data)
   df_excel.to_excel(excel_filename, index=False)
-  print(f"📊 Excel generato con successo con metriche avanzate: {excel_filename}")
-
+  print(f"📊 Excel generato con successo: {excel_filename}")
+  
   # NOTIFICHE TELEGRAM & EMAIL
-  righe = [f"📊 **MONITOR PORTAFOGLI FAMIGLIA (ADVANCED) - {data_odierna}**\n"]
+  righe = [f"📊 **MONITOR PORTAFOGLI FAMIGLIA - {data_odierna}**\n"]
   for c in candidati:
     tag = f"👶 [{c['proprietario'].upper()}]" if c["proprietario"] in ["Gabri", "Greg"] else "🧑 [ME]"
-    righe.append(f"• {tag} **{c['ticker_raw']}** (${c['prezzo']:.1f} | RS: {c['forza_relativa']:+.1f}%) ➔ *{c['suggerimento']}*")
+    righe.append(f"• {tag} **{c['ticker_raw']}** (${c['prezzo']:.1f}) ➔ *{c['suggerimento']}*")
     
   msg = "\n".join(righe)
   invia_telegram(CANALE_ACCUMULAZIONE_ID, msg)
-  invia_email_con_allegato(f"📈 Report Portafogli Famiglia Avanzato - {data_odierna}", msg.replace("**","").replace("*",""), excel_filename)
+  invia_email_con_allegato(f"📈 Report Portafogli Famiglia - {data_odierna}", msg.replace("**","").replace("*",""), excel_filename)
 
 if __name__ == "__main__":
   main()
