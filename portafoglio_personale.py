@@ -50,7 +50,7 @@ MEI_PORTAFOGLIO_CONFIG = {
     "QCOM": {"pmc": 146.84, "core": False},
     "TDG": {"pmc": 1071.77, "core": True},
     "VST": {"pmc": 132.48, "core": True},
-    "ROL": {"pmc": 31.00, "core": False},
+    "ROL": {"pmc": 31.0, "core": False},
     "NVO": {"pmc": 37.58, "core": True},
     "AMTM": {"pmc": 19.73, "core": True},
     "BMY": {"pmc": 50.60, "core": True},
@@ -64,9 +64,7 @@ MEI_PORTAFOGLIO_CONFIG = {
     "SKHY": {"pmc": 168.00, "core": True},
     "UPST": {"pmc": 23.99, "core": True},
     "HTZ": {"pmc": 2.83, "core": True},
-    # "POET": {"pmc": 1.50, "core": True},  # Esempio inserimento POET Technology
 }
-
 
 # =====================================================================
 # FUNZIONI DI NOTIFICA & INVIO MAIL
@@ -85,7 +83,6 @@ def invia_telegram(canale_id, messaggio):
   except Exception as e:
     print(f"Errore invio Telegram: {e}")
 
-
 def invia_email_con_allegato(oggetto, corpo_testo, file_excel_path):
   """Invia un'e-mail via SMTP Gmail allegando il file Excel generato."""
   if not SENDER_EMAIL or not APP_PASSWORD or not RECEIVER_EMAIL:
@@ -99,9 +96,7 @@ def invia_email_con_allegato(oggetto, corpo_testo, file_excel_path):
   if os.path.exists(file_excel_path):
     with open(file_excel_path, "rb") as f:
       part = MIMEApplication(f.read(), Name=os.path.basename(file_excel_path))
-      part[
-          "Content-Disposition"
-      ] = f'attachment; filename="{os.path.basename(file_excel_path)}"'
+      part["Content-Disposition"] = f'attachment; filename="{os.path.basename(file_excel_path)}"'
       msg.attach(part)
   try:
     print(f"📧 Invio e-mail in corso a {RECEIVER_EMAIL}...")
@@ -114,7 +109,6 @@ def invia_email_con_allegato(oggetto, corpo_testo, file_excel_path):
   except Exception as e:
     print(f"❌ Errore durante l'invio dell'e-mail: {e}")
 
-
 def ottieni_tasso_cambio_eur_usd():
   """Scarica il tasso di cambio EUR/USD in tempo reale via yfinance."""
   try:
@@ -126,9 +120,8 @@ def ottieni_tasso_cambio_eur_usd():
     print(f"⚠️ Impossibile scaricare il cambio EUR/USD, uso default 1.08: {e}")
   return 1.08
 
-
 # =====================================================================
-# CALCOLI ANALISI TECNICA AVANZATA
+# CALCOLI ANALISI TECNICA & TRIPLO BINARIO VOLUMI
 # =====================================================================
 def calcola_rsi(chiusure, periodi=14):
   delta = chiusure.diff()
@@ -137,30 +130,22 @@ def calcola_rsi(chiusure, periodi=14):
   rs = guadagno / perdita
   return 100 - (100 / (1 + rs))
 
-
 def calcola_obv(chiusure, volumi):
   obv = (np.sign(chiusure.diff()) * volumi).fillna(0).cumsum()
   return obv
 
-
 def calcola_cmf(massimi, minimi, chiusure, volumi, periodi=20):
-  mf_multiplier = ((chiusure - minimi) - (massimi - chiusure)) / (
-      massimi - minimi
-  )
+  mf_multiplier = ((chiusure - minimi) - (massimi - chiusure)) / (massimi - minimi)
   mf_multiplier = mf_multiplier.fillna(0)
   mf_volume = mf_multiplier * volumi
-  cmf = mf_volume.rolling(window=periodi).sum() / volumi.rolling(
-      window=periodi
-  ).sum()
+  cmf = mf_volume.rolling(window=periodi).sum() / volumi.rolling(window=periodi).sum()
   return cmf
-
 
 def calcola_close_location_value(chiusura, minimo, massimo):
   range_giornaliero = massimo - minimo
   if range_giornaliero == 0:
     return 0.5
   return (chiusura - minimo) / range_giornaliero
-
 
 def calcola_volume_poc(chiusure, volumi, periodi=60, bins=10):
   if len(chiusure) < periodi:
@@ -172,6 +157,40 @@ def calcola_volume_poc(chiusure, volumi, periodi=60, bins=10):
   poc_price = (bin_edges[max_idx] + bin_edges[max_idx + 1]) / 2.0
   return float(poc_price)
 
+def analizza_trend_volumi_5g(volumi_ser):
+  """Analizza se i volumi nelle ultime 5 sedute stanno accelerando o raffreddandosi."""
+  if len(volumi_ser) < 5:
+    return "Stabile ➡️"
+  v5 = volumi_ser.iloc[-5:].values
+  t_recenti = v5[-2:].mean()
+  t_passati = v5[:3].mean()
+  if t_passati == 0:
+    return "Stabile ➡️"
+  ratio = t_recenti / t_passati
+  if ratio > 1.10:
+    return "In Accelerazione 📈"
+  elif ratio < 0.90:
+    return "In Raffreddamento 📉"
+  else:
+    return "Stabile ➡️"
+
+def calcola_pendenza_regressione_volumi(volumi_ser, periodi):
+  """Calcola la pendenza della retta di regressione sui volumi per il periodo specificato."""
+  if len(volumi_ser) < periodi:
+    return "N/D"
+  y = volumi_ser.iloc[-periodi:].values
+  x = np.arange(periodi)
+  slope, _ = np.polyfit(x, y, 1)
+  media_y = np.mean(y)
+  if media_y == 0:
+    return "Stabile ➡️"
+  slope_pct = (slope / media_y) * 100
+  if slope_pct > 0.5:
+    return "In Crescita 📈"
+  elif slope_pct < -0.5:
+    return "In Esaurimento 📉"
+  else:
+    return "Stabile ➡️"
 
 def ottieni_dati_fondamentali_e_anagrafica(ticker_obj, ticker_str):
   nome_azienda = ""
@@ -190,14 +209,11 @@ def ottieni_dati_fondamentali_e_anagrafica(ticker_obj, ticker_str):
         short_pct = round(info.get("shortPercentOfFloat") * 100, 2)
   except Exception:
     pass
-  ticker_display = (
-      f"{ticker_str} - {nome_azienda}" if nome_azienda else ticker_str
-  )
+  ticker_display = f"{ticker_str} - {nome_azienda}" if nome_azienda else ticker_str
   return ticker_display, fwd_pe, peg, short_pct
 
-
 # =====================================================================
-# MOTORE DI SUGGERIMENTO IBRIDO & PAC DINAMICO AVANZATO
+# MOTORE DI SUGGERIMENTO IBRIDO AGGIORNATO CON VOLUMI
 # =====================================================================
 def genera_suggerimento_ibrido(c):
   is_core = c["is_core"]
@@ -205,141 +221,124 @@ def genera_suggerimento_ibrido(c):
   cmf = c["cmf"]
   vsa = c["vsa_rating"]
   rsi = c["rsi"]
-  storno = c["storno"]
+  storno = c["storno"]  
   pnl_pct = c["pnl_pct"]
   short_pct = c.get("short_interest", "N/D")
+  trend_5g = c.get("trend_volumi_5g", "Stabile ➡️")
+  reg_50g = c.get("reg_vol_50g", "Stabile ➡️")
 
-  in_guadagno = isinstance(pnl_pct, (int, float)) and pnl_pct > 0
-  in_perdita = isinstance(pnl_pct, (int, float)) and pnl_pct < 0
-
-  # 1. GESTIONE DRAWDOWN PROFONDO (-35% o peggio)
-  if storno >= 35.0:
-    if is_bear and cmf < -0.05:
-      return (
-          f"⚠️ [ALLARME - ROTTURA STRUTTURALE (-{storno:.1f}%)]:"
-          " Drawdown severo sotto SMA200 e flussi in uscita. "
-          f"{'La tesi Core regge di lungo, ma valuta alleggerimento o stop.' if is_core else 'Asset tattico compromesso: non mediare.'}"
-      )
-    else:
-      if in_perdita:
+  # 1. GESTIONE SPECIFICA PER TITOLI CORE IN FORTE STORNO
+  if is_core:
+    if storno >= 35.0:
+      if is_bear and cmf < -0.05 and reg_50g == "In Esaurimento 📉":
         return (
-            f"🚀 [RIPRENDI ACCUMULO - MEDIA PESANTE (-{storno:.1f}%)]:"
-            " Sei in perdita ma il titolo è in profondo sconto con flussi stabili o assorbimento. "
-            "Ottimo momento per riprendere il PAC con una quota consistente per mediare efficacemente."
+            f"⚠️ [ALLARME CORE - ROTTURA STRUTTURALE (-{storno:.1f}%)]:"
+            " Drawdown severo, sotto SMA200 con volumi trimestrali in esaurimento."
+            " Valuta di alleggerire una quota."
         )
       else:
         return (
             f"🛡️ [CORE IN PROFONDO SCONTO (-{storno:.1f}%)]:"
-            " Drawdown importante ma le mani forti non fuggono. Sfrutta la debolezza per accumulare (DCA)."
+            " Drawdown importante ma senza capitolazione di volume a lungo termine."
+            " Sfrutta per accumulare (DCA)."
         )
-
-  # 2. CORREZIONE INTERMEDIA (20% - 35%)
-  elif storno >= 20.0:
-    if in_perdita and cmf >= -0.02:
-      return (
-          f"🚀 [RIPRENDI ACCUMULO - INVERSIONE SUPPORTO (-{storno:.1f}%)]:"
-          " Il titolo è in perdita ma sta trovando stabilità sui supporti con flussi sani. "
-          "Riprendi l'accumulo con una quota più consistente per abbassare il PMC."
-      )
-    elif in_guadagno:
-      return (
-          f"🔥 [ULTIMA OCCASIONE / INCREMENTA (-{storno:.1f}%)]:"
-          " Sei in utile ma il titolo offre uno storno sano. "
-          "Approfitta di questa zona di prezzo vantaggiosa per aumentare la quota di accumulo prima della ripartenza."
-      )
-    else:
+    elif storno >= 20.0:
       return (
           f"💎 [CORE IN CORREZIONE (-{storno:.1f}%)]:"
-          " Storno fisiologico. Mantieni la posizione salda e valuta acquisti mirati."
+          " Storno fisiologico. La tesi di fondo non è compromessa."
       )
 
-  # 3. SHORT SQUEEZE ESPLOSIVO
+  # 2. Segnale Short Squeeze Esplosivo
   if (
       isinstance(short_pct, (int, float))
       and short_pct > 10
       and cmf > 0.08
       and not is_bear
+      and trend_5g == "In Accelerazione 📈"
   ):
     return (
-        "🔥 [SHORT SQUEEZE IN ATTO]: Short interest alto + forti flussi in ingresso. "
-        f"{'Aumenta la quota o fai correre i profitti!' if in_guadagno else 'Ottima occasione di spinta.'}"
+        "🔥 [SHORT SQUEEZE ATTIVO & IN ACCELERAZIONE]: Short alto + volumi in forte spinta."
+        " Lascia correre!"
     )
 
-  # 4. TREND RIALZISTA SANO E ACCUMULO PULITO (BULL TREND)
-  if not is_bear and cmf > 0.03 and vsa == "🟢 ACCUMULAZIONE PULITA":
-    if in_guadagno:
-      return (
-          "🟢 [CONTINUA ACCUMULO - TREND FORTE]: "
-          "Sei in guadagno e il trend è ben delineato con flussi istituzionali sani. "
-          "Continua il PAC regolarmente senza timore di alzare il PMC."
-      )
-    else:
-      return (
-          "🟢 [ACCUMULO ATTIVO]: Trend e flussi sani. Continua ad accumulare."
-      )
-
-  # 5. FASE DI DISTRIBUZIONE O BEAR MARKET ATTIVO
-  if vsa == "🔴 DISTRIBUZIONE / VENDITA" or (is_bear and cmf < -0.03):
-    if in_guadagno:
-      return (
-          "🟡 [SOSPENDI ACCUMULO - PROTEGGI IL GAIN]: "
-          "Il titolo è in utile ma mostra distribuzione/debolezza sotto la SMA200. "
-          "Sospendi l'accumulo per evitare di alzare il PMC in fase stagnante o discendente."
-      )
-    else:
-      return (
-          "🛑 [SOSPENDI ACCUMULO - EVITA IL CROLLO]: "
-          "Flussi negativi e trend ribassista attivo. "
-          "Evita assolutamente di mediare al ribasso su questo asset per non incastrare altra liquidità."
-      )
-
-  # 6. DEFAULT / FASI LATERALI O IPERVENDUTO
-  if rsi < 30:
-    return (
-        "🟡 [AREA IPERVENDUTO]: Titolo molto scarico (RSI < 30). "
-        f"{'Valuta un acquisto mirato di rimbalzo.' if in_perdita else 'Monitora per ripartenza.'}"
-    )
-
-  if in_guadagno and not is_bear:
-    return (
-        "💎 [MANTIENI IL GAIN]: Posizione in utile con struttura stabile. "
-        "Puoi proseguire il PAC regolare o mantenere la quota attuale."
-    )
-
-  return (
-      "🟡 [FASE NEUTRA / LATERALE]: Struttura senza direzionalità chiara. "
-      "Mantieni la posizione senza forzare nuovi ingressi."
+  # 3. SE IL TITOLO "SCOTTA" SUI MASSIMI
+  titolo_scotta = (rsi > 78 or (storno < 3.0 and rsi > 72)) and (
+      cmf < -0.02 or vsa == "🔴 DISTRIBUZIONE / VENDITA" or trend_5g == "In Raffreddamento 📉"
   )
+  if titolo_scotta:
+    if is_core:
+      return (
+          f"🛡️ [CORE - ZONA CALDA]: Titolo tirato (RSI {rsi:.1f}) con volumi in raffreddamento."
+          " **NON VENDERE LA CORE**: ignora il rumore di breve."
+      )
+    else:
+      return (
+          f"💰 [ZONA CALDA - PRENDI PROFITTO]: Titolo tirato (RSI {rsi:.1f}) con scarico volumi."
+          " Alleggerisci la quota tattica."
+      )
 
+  # 4. Gain straordinario senza distribuzione
+  if pnl_pct != "N/D" and pnl_pct > 50.0 and not is_bear:
+    return (
+        f"🚀 [GAIN STRAORDINARIO (+{pnl_pct:.1f}%)]: Trend e volumi sani."
+        " Fai correre i profitti."
+    )
+
+  # 5. Trend rialzista sano e accumulo pulito
+  if not is_bear and cmf > 0.05 and vsa == "🟢 ACCUMULAZIONE PULITA":
+    return (
+        "🟢 [ACCUMULO ATTIVO]: Trend e flussi istituzionali sani. Continua ad accumulare."
+    )
+
+  # 6. Storno sano con supporto delle mani forti
+  elif cmf >= 0.0 and storno >= 12.0:
+    return (
+        "💎 [SCONTO STRATEGICO]: Storno salutare con assorbimento istituzionale."
+        " Ottima zona d'acquisto."
+    )
+
+  # 7. Distribuzione generale / Trend ribassista
+  elif vsa == "🔴 DISTRIBUZIONE / VENDITA" or cmf < -0.05:
+    if is_core:
+      return (
+          "⚠️ [FASE DIFENSIVA CORE]: Pressione ribassista. Mantieni la barra dritta sul lungo."
+      )
+    else:
+      return (
+          "🔴 [DISTRIBUZIONE]: Flussi negativi e volumi in calo. Evita di mediare."
+      )
+
+  # 8. Default / Neutro
+  else:
+    if rsi < 30:
+      return (
+          "🟡 [AREA IPERVENDUTO]: Titolo molto scarico (RSI < 30). Monitorare per rimbalzo."
+      )
+    return (
+        "🟡 [FASE NEUTRA]: Struttura laterale. Mantenere la posizione senza fretta."
+    )
 
 # =====================================================================
 # MAIN FUNCTION
 # =====================================================================
 def main():
-  tickers = [
-      t.strip().upper() for t in MEI_PORTAFOGLIO_CONFIG.keys() if t.strip()
-  ]
+  tickers = [t.strip().upper() for t in MEI_PORTAFOGLIO_CONFIG.keys() if t.strip()]
   if not tickers:
     print("⚠️ Nessun ticker inserito nella configurazione del portafoglio.")
     return
-  print(f"💱 Recupero tasso di cambio EUR/USD in corso...")
+  
+  print("💱 Recupero tasso di cambio EUR/USD in corso...")
   eur_usd_rate = ottieni_tasso_cambio_eur_usd()
   print(f"ℹ️ Tasso di cambio utilizzato (EUR/USD): {eur_usd_rate:.4f}")
-  print(
-      f"🚀 Avvio scansione del Portafoglio Ibrido su {len(tickers)} titoli..."
-  )
+  print(f"🚀 Avvio scansione del Portafoglio Ibrido su {len(tickers)} titoli...")
+  
   try:
-    df_raw = yf.download(
-        tickers, period="1y", auto_adjust=True, progress=False
-    )
+    df_raw = yf.download(tickers, period="1y", auto_adjust=True, progress=False)
   except Exception as e:
     print(f"Errore critico durante il download dati bulk: {e}")
-    invia_telegram(
-        CANALE_ACCUMULAZIONE_ID,
-        "❌ Errore critico nel download dei dati del portafoglio.",
-    )
+    invia_telegram(CANALE_ACCUMULAZIONE_ID, "❌ Errore critico nel download dei dati del portafoglio.")
     return
-
+    
   candidati = []
   for ticker_str in tickers:
     try:
@@ -349,101 +348,72 @@ def main():
         df_high = df_raw["High"]
         df_low = df_raw["Low"]
       else:
-        df_close = (
-            df_raw["Close"][ticker_str]
-            if "Close" in df_raw
-            else df_raw.xs(ticker_str, axis=1, level=1)["Close"]
-        )
-        df_volume = (
-            df_raw["Volume"][ticker_str]
-            if "Volume" in df_raw
-            else df_raw.xs(ticker_str, axis=1, level=1)["Volume"]
-        )
-        df_high = (
-            df_raw["High"][ticker_str]
-            if "High" in df_raw
-            else df_raw.xs(ticker_str, axis=1, level=1)["High"]
-        )
-        df_low = (
-            df_raw["Low"][ticker_str]
-            if "Low" in df_raw
-            else df_raw.xs(ticker_str, axis=1, level=1)["Low"]
-        )
+        df_close = df_raw["Close"][ticker_str] if "Close" in df_raw else df_raw.xs(ticker_str, axis=1, level=1)["Close"]
+        df_volume = df_raw["Volume"][ticker_str] if "Volume" in df_raw else df_raw.xs(ticker_str, axis=1, level=1)["Volume"]
+        df_high = df_raw["High"][ticker_str] if "High" in df_raw else df_raw.xs(ticker_str, axis=1, level=1)["High"]
+        df_low = df_raw["Low"][ticker_str] if "Low" in df_raw else df_raw.xs(ticker_str, axis=1, level=1)["Low"]
+        
       chiusure = df_close.dropna()
       if len(chiusure) < 50:
         continue
       volumi = df_volume.dropna()
       massimi = df_high.dropna()
       minimi = df_low.dropna()
+      
       prezzo_attuale = float(chiusure.iloc[-1])
       massimo_52w = float(chiusure.max())
       minimo_52w = float(chiusure.min())
       storno_pct = ((massimo_52w - prezzo_attuale) / massimo_52w) * 100
-      dist_min_52w_pct = (
-          (prezzo_attuale - minimo_52w) / minimo_52w
-      ) * 100
+      dist_min_52w_pct = ((prezzo_attuale - minimo_52w) / minimo_52w) * 100
+      
       config_titolo = MEI_PORTAFOGLIO_CONFIG.get(ticker_str, {})
       pmc_eur = config_titolo.get("pmc", 0.0)
       is_core = config_titolo.get("core", False)
+      
       if pmc_eur > 0:
         if ticker_str.endswith(".MI") or ticker_str.endswith(".PA"):
           pmc_usd = pmc_eur
         else:
           pmc_usd = pmc_eur * eur_usd_rate
-        pnl_pct = round(
-            ((prezzo_attuale - pmc_usd) / pmc_usd) * 100, 2
-        )
+        pnl_pct = round(((prezzo_attuale - pmc_usd) / pmc_usd) * 100, 2)
       else:
         pmc_usd = 0.0
         pnl_pct = "N/D"
-
+        
       rvol_5d_pct = 0.0
       if len(volumi) >= 60:
         media_vol_5g = volumi.iloc[-5:].mean()
         media_vol_60g = volumi.iloc[-60:].mean()
         if media_vol_60g > 0:
           rvol_5d_pct = (media_vol_5g / media_vol_60g) * 100
+          
+      # CALCOLO TRIPLO BINARIO VOLUMI
+      trend_volumi_5g = analizza_trend_volumi_5g(volumi)
+      reg_vol_20g = calcola_pendenza_regressione_volumi(volumi, 20)
+      reg_vol_50g = calcola_pendenza_regressione_volumi(volumi, 50)
 
       t_obj = yf.Ticker(ticker_str)
-      ticker_display, fwd_pe, peg, short_pct = (
-          ottieni_dati_fondamentali_e_anagrafica(t_obj, ticker_str)
-      )
-      minimo_60g = (
-          float(chiusure.iloc[-60:].min())
-          if len(chiusure) >= 60
-          else float(chiusure.min())
-      )
-      distanza_supporto_pct = (
-          (prezzo_attuale - minimo_60g) / minimo_60g
-      ) * 100
-      sma_50 = (
-          float(chiusure.rolling(window=50).mean().iloc[-1])
-          if len(chiusure) >= 50
-          else prezzo_attuale
-      )
-      dist_sma50_pct = round(
-          ((prezzo_attuale - sma_50) / sma_50) * 100 if sma_50 > 0 else 0.0, 2
-      )
-      sma_200 = (
-          float(chiusure.rolling(window=200).mean().iloc[-1])
-          if len(chiusure) >= 200
-          else prezzo_attuale
-      )
-      dist_sma200_pct = round(
-          (
-              ((prezzo_attuale - sma_200) / sma_200) * 100
-              if sma_200 > 0
-              else 0.0
-          ),
-          2,
-      )
+      ticker_display, fwd_pe, peg, short_pct = ottieni_dati_fondamentali_e_anagrafica(t_obj, ticker_str)
+      
+      minimo_60g = float(chiusure.iloc[-60:].min()) if len(chiusure) >= 60 else float(chiusure.min())
+      distanza_supporto_pct = ((prezzo_attuale - minimo_60g) / minimo_60g) * 100
+      
+      sma_50 = float(chiusure.rolling(window=50).mean().iloc[-1]) if len(chiusure) >= 50 else prezzo_attuale
+      dist_sma50_pct = round(((prezzo_attuale - sma_50) / sma_50) * 100 if sma_50 > 0 else 0.0, 2)
+      
+      sma_200 = float(chiusure.rolling(window=200).mean().iloc[-1]) if len(chiusure) >= 200 else prezzo_attuale
+      dist_sma200_pct = round(((prezzo_attuale - sma_200) / sma_200) * 100 if sma_200 > 0 else 0.0, 2)
+      
       is_bear_market = prezzo_attuale < sma_200
+      
       rsi_serie = calcola_rsi(chiusure)
       rsi_attuale = float(rsi_serie.iloc[-1])
+      
       cmf_val = 0.0
       obv_trend = "Neutro"
       clv_val = 0.5
       poc_val = prezzo_attuale
+      
       if len(volumi) >= 20:
         cmf_serie = calcola_cmf(massimi, minimi, chiusure, volumi, periodi=20)
         cmf_val = float(cmf_serie.iloc[-1])
@@ -453,24 +423,18 @@ def main():
           obv_trend = "Rialzista (Accumulo)"
         else:
           obv_trend = "Ribassista (Distribuzione)"
-        clv_5d = [
-            calcola_close_location_value(
-                chiusure.iloc[i], minimi.iloc[i], massimi.iloc[i]
-            )
-            for i in range(-5, 0)
-        ]
+          
+        clv_5d = [calcola_close_location_value(chiusure.iloc[i], minimi.iloc[i], massimi.iloc[i]) for i in range(-5, 0)]
         clv_val = float(np.mean(clv_5d))
-        poc_val = calcola_volume_poc(
-            chiusure, volumi, periodi=min(60, len(chiusure))
-        )
-
+        poc_val = calcola_volume_poc(chiusure, volumi, periodi=min(60, len(chiusure)))
+        
       if cmf_val > 0.05 and clv_val >= 0.55:
         vsa_rating = "🟢 ACCUMULAZIONE PULITA"
       elif cmf_val < -0.05 and clv_val <= 0.45:
         vsa_rating = "🔴 DISTRIBUZIONE / VENDITA"
       else:
         vsa_rating = "🟡 NEUTRO / VOLATILITÀ"
-
+        
       diz_candidato = {
           "ticker_raw": ticker_str,
           "ticker_display": ticker_display,
@@ -482,6 +446,9 @@ def main():
           "storno": storno_pct,
           "is_bear": is_bear_market,
           "rvol_5d": rvol_5d_pct,
+          "trend_volumi_5g": trend_volumi_5g,
+          "reg_vol_20g": reg_vol_20g,
+          "reg_vol_50g": reg_vol_50g,
           "supporto_60g": minimo_60g,
           "dist_supp_pct": distanza_supporto_pct,
           "resistenza_52w": massimo_52w,
@@ -505,7 +472,7 @@ def main():
     except Exception as e:
       print(f"⚠️ Errore durante l'elaborazione del ticker {ticker_str}: {e}")
       continue
-
+      
   if not candidati:
     print("ℹ️ Nessun dato elaborato per i ticker selezionati.")
     return
@@ -514,21 +481,13 @@ def main():
   data_odierna = datetime.now().strftime("%Y-%m-%d")
   excel_filename = f"Report_Portafoglio_Ibrido_{data_odierna}.xlsx"
   excel_data = []
+  
   for c in candidati:
-    stato_trend = (
-        "🔴 BEAR TREND (Sotto SMA200)"
-        if c["is_bear"]
-        else "🟢 BULL TREND (Sopra SMA200)"
-    )
+    stato_trend = "🔴 BEAR TREND (Sotto SMA200)" if c["is_bear"] else "🟢 BULL TREND (Sopra SMA200)"
     tipo_asset = "⭐ CORE (Lungo Termine)" * c["is_core"] or "💼 Tattico"
-    condizione_rsi = (
-        "Ipervenduto (<30)" if c["rsi"] < 30 else "Neutro/Normale"
-    )
-    pnl_display = (
-        f"{c['pnl_pct']:+.1f}%"
-        if isinstance(c["pnl_pct"], (int, float))
-        else "N/D"
-    )
+    condizione_rsi = "Ipervenduto (<30)" if c["rsi"] < 30 else "Neutro/Normale"
+    pnl_display = f"{c['pnl_pct']:+.1f}%" if isinstance(c["pnl_pct"], (int, float)) else "N/D"
+    
     excel_data.append({
         "Ticker": c["ticker_display"],
         "Profilo Asset": tipo_asset,
@@ -548,9 +507,13 @@ def main():
         "RSI (14)": round(c["rsi"], 1),
         "Stato RSI": condizione_rsi,
         "CMF (20G)": round(c["cmf"], 3),
+        "Trend Volumi 5G": c["trend_volumi_5g"],             # <--- AGGIUNTO
+        "Regressione Volumi 20G (1M)": c["reg_vol_20g"],    # <--- AGGIUNTO
+        "Regressione Volumi 50G (3M)": c["reg_vol_50g"],    # <--- AGGIUNTO
         "Analisi VSA": c["vsa_rating"],
         "Suggerimento / Action": c["suggerimento"],
     })
+    
   df_excel = pd.DataFrame(excel_data)
   try:
     with pd.ExcelWriter(excel_filename, engine="openpyxl") as writer:
@@ -564,30 +527,24 @@ def main():
       f"Smart Money Radar - Report Portafoglio Ibrido del {data_odierna}\n"
       f"Tasso cambio EUR/USD applicato: {eur_usd_rate:.4f}\n\n"
   )
-  righe = [
-      f"📊 **MONITOR PORTAFOGLIO IBRIDO ({data_odierna})** *(Cambio:"
-      f" {eur_usd_rate:.4f})*\n"
-  ]
+  righe = [f"📊 **MONITOR PORTAFOGLIO IBRIDO ({data_odierna})** *(Cambio: {eur_usd_rate:.4f})*\n"]
+  
   for c in candidati:
     trend_icon = "🔴" if c["is_bear"] else "🟢"
     core_label = "⭐" if c["is_core"] else ""
-    righe.append(
-        f"• {trend_icon}{core_label} **{c['ticker_raw']}** (${c['prezzo']:.1f})"
-        f" ➔ *{c['suggerimento']}*"
-    )
+    righe.append(f"• {trend_icon}{core_label} **{c['ticker_raw']}** (${c['prezzo']:.1f}) ➔ *{c['suggerimento']}*")
+    
   msg = "\n".join(righe)
   invia_telegram(CANALE_ACCUMULAZIONE_ID, msg)
+  
   corpo_email_testo += msg.replace("**", "").replace("*", "")
-  corpo_email_testo += (
-      "\n\nTrovi in allegato il report in formato Excel con la suddivisione tra"
-      " asset Core e Tattici."
-  )
+  corpo_email_testo += "\n\nTrovi in allegato il report Excel aggiornato con il triplo binario dei volumi (5G, 20G e 50G)."
+  
   invia_email_con_allegato(
       oggetto=f"📈 Report Portafoglio Ibrido - {data_odierna}",
       corpo_testo=corpo_email_testo,
       file_excel_path=excel_filename,
   )
-
 
 if __name__ == "__main__":
   main()
