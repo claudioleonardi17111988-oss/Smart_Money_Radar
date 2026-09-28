@@ -183,7 +183,7 @@ def ottieni_dati_fondamentali_e_anagrafica(ticker_obj, ticker_str):
   return (f"{ticker_str} - {nome_azienda}" if nome_azienda else ticker_str), fwd_pe, peg, short_pct
 
 # =====================================================================
-# MOTORE DI SUGGERIMENTO IBRIDO (CHIRURGICO SU FOMO / ESAURIMENTO)
+# MOTORE DI SUGGERIMENTO IBRIDO (CON DCA FINALIZZATO AL PROFITTO)
 # =====================================================================
 def genera_suggerimento_ibrido(c):
   proprietario = c["proprietario"]
@@ -195,46 +195,41 @@ def genera_suggerimento_ibrido(c):
   storno = c["storno"]  
   pnl_pct = c["pnl_pct"]
   trend_5g = c.get("trend_volumi_5g", "Stabile ➡️")
-  reg_50g = c.get("reg_vol_50g", "Stabile ➡️")
   
-  # 🚨 1. CONDIZIONE CHIRURGICA DI VENDITA: FOMO / IPERCOMPRATO SENZA VOLUMI DI SUPPORTO
+  # 🚨 1. VENDI / PRENDI PROFITTO (FOMO & ESAURIMENTO VOLUMI)
   fomo_esaurimento = (rsi > 76) and (cmf < 0.0 or vsa == "🔴 DISTRIBUZIONE / VENDITA" or trend_5g == "In Raffreddamento 📉")
-  
   if fomo_esaurimento:
     return (
-        f"🚨 [{proprietario.upper()} - VENDI / PRENDI PROFITTO (FOMO & ESAURIMENTO VOLUMI)]: "
-        f"Ipercomprato (RSI {rsi:.1f}) con volumi deboli o in scarico. "
-        f"Il prezzo sale per inerzia: alto rischio di correzione!"
+        f"🚨 [{proprietario.upper()} - VENDI / PRENDI PROFITTO (FOMO)]: "
+        f"Ipercomprato (RSI {rsi:.1f}) con volumi deboli. Incassa il guadagno prima della correzione!"
     )
 
-  # ⚠️ 2. ALLARME STRUTTURALE DI LUNGO (Solo in caso di crollo profondo e flussi negativi pesanti)
+  # ⚠️ 2. ALLARME STRUTTURALE / INTERROMPI DCA (Crollo profondo + flussi pesantemente negativi)
   if storno >= 35.0 and (vsa == "🔴 DISTRIBUZIONE / VENDITA" and cmf < -0.05):
     return (
-        f"⚠️ [{proprietario.upper()} - ALLARME STRUTTURALE (-{storno:.1f}%)]: "
-        f"Storno profondo e flussi istituzionali negativi. Valuta la rotazione."
+        f"⚠️ [{proprietario.upper()} - INTERROMPI DCA (-{storno:.1f}%)]: "
+        f"Storno pesante e flussi istituzionali negativi. Sospendi gli acquisti per proteggere il capitale."
     )
 
-  # 🚀 3. TREND SANO E IN SPINTA
+  # 🟢 3. ACCUMULA / DCA FINALIZZATO AL PROFITTO (Sconto sano dai massimi + assenza di panico/distribuzione)
+  if storno >= 15.0 and cmf >= -0.03:
+    return (
+        f"🟢 [{proprietario.upper()} - ACCUMULA / DCA PROFITTO]: "
+        f"Sconto sano (-{storno:.1f}% dai massimi) finalizzato al profitto futuro. Ottima area per incrementare (salvo quota massima raggiunta)."
+    )
+
+  # 🚀 4. TREND FORTE IN SPINTA
   if not is_bear and cmf > 0.03 and trend_5g == "In Accelerazione 📈":
     return (
-        f"🚀 [{proprietario.upper()} - IN SPINTA]: Trend solido sostenuto da volumi veri."
-        f" Lascia correre il profitto!"
+        f"🚀 [{proprietario.upper()} - MANTIENI PER PROFITTO]: "
+        f"Trend solido con volumi reali. Lascia correre i guadagni."
     )
   
-  # 💎 4. GESTIONE PAZIENTE PER GABRI E GREG (Nessun panico per normali correzioni)
-  if proprietario in ["Gabri", "Greg"]:
-    return (
-        f"💎 [{proprietario.upper()} - RESPIRO O ACCUMULO]: Storno fisiologico (-{storno:.1f}%) o laterale sano. "
-        f"Nessuna FOMO tossica rilevata: tieni la posizione e pazienta per il prossimo impulso."
-    )
-  
-  # 🧑 5. GESTIONE PERSONALIZZATA ("ME": CORE / TATTICO)
-  if is_core and storno >= 25.0:
-    return f"💎 [CORE IN CORREZIONE (-{storno:.1f}%)]: Fisiologico, tesi pluriennale intatta."
-  elif cmf >= -0.01 and storno >= 12.0:
-    return "💎 [SCONTO STRATEGICO]: Fase di respiro con assorbimento sano, mantieni o incrementa."
-  else:
-    return "🟡 [FASE DI PAZIENZA]: Mantenere la posizione in portafoglio senza fretta."
+  # 🟡 5. FASE DI PAZIENZA / ATTESA
+  return (
+      f"🟡 [{proprietario.upper()} - PAZIENTA / MANTIENI]: "
+      f"Fase laterale o respiro fisiologico (-{storno:.1f}%). Mantieni la posizione in ottica di rendimento."
+  )
 
 # =====================================================================
 # MAIN FUNCTION
