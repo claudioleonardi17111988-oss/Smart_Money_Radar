@@ -14,6 +14,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 import pandas as pd
 import requests
 import yfinance as yf
+
 warnings.filterwarnings('ignore')
 
 # =====================================================================
@@ -48,7 +49,7 @@ def salva_stato_attuale(df_res):
     json.dump(nuovo_stato, f, indent=4, ensure_ascii=False)
 
 # =====================================================================
-# 1. RECUPERO TICKER (S&P 500 + NASDAQ 100 + MIDCAP 400)
+# 1. RECUPERO TICKER (S&P 500 + NASDAQ 100 + MIDCAP 400 + SPY BENCHMARK)
 # =====================================================================
 def _fetch_wikipedia_table(url):
   headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
@@ -82,8 +83,19 @@ def ottieni_ticker_usa():
     print(f'Errore recupero S&P MidCap 400: {e}')
   return list(tickers)
 
+def scarica_benchmark_spy():
+  """Scarica lo storico di SPY per calcolare la Forza Relativa."""
+  try:
+    df_spy = yf.download('SPY', period='1y', auto_adjust=True, progress=False)
+    if isinstance(df_spy.columns, pd.MultiIndex):
+      df_spy.columns = df_spy.columns.get_level_values(0)
+    return df_spy['Close'].dropna()
+  except Exception as e:
+    print(f'⚠️ Impossibile scaricare il benchmark SPY: {e}')
+    return pd.Series(dtype=float)
+
 # =====================================================================
-# 2. MOTORE DI CALCOLO INDICATORI AVANZATI (Triplo Binario Volumi)
+# 2. MOTORE DI CALCOLO INDICATORI AVANZATI (Triplo Binario & Metriche Master)
 # =====================================================================
 def calcola_rsi(series, period=14):
   delta = series.diff()
@@ -99,6 +111,29 @@ def calcola_cmf(massimi, minimi, chiusure, volumi, periodi=20):
   mf_multiplier = ((chiusure - minimi) - (massimi - chiusure)) / (massimi - minimi + 1e-10)
   mf_volume = mf_multiplier * volumi
   return mf_volume.rolling(window=periodi).sum() / (volumi.rolling(window=periodi).sum() + 1e-10)
+
+def calcola_vwap_periodo(df, periodi=60):
+  """Calcola il VWAP istituzionale basato sulle ultime sedute (trimestrale)."""
+  typical_price = (df['High'] + df['Low'] + df['Close']) / 3.0
+  tp_vol = (typical_price * df['Volume']).rolling(window=periodi).sum()
+  vol_sum = df['Volume'].rolling(window=periodi).sum() + 1e-10
+  return tp_vol / vol_sum
+
+def calcola_atr(df, periodi=14):
+  """Calcola l'Average True Range (ATR) per la volatilità dinamica."""
+  tr1 = df['High'] - df['Low']
+  tr2 = (df['High'] - df['Close'].shift()).abs()
+  tr3 = (df['Low'] - df['Close'].shift()).abs()
+  tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+  return tr.rolling(window=periodi).mean()
+
+def calcola_forza_relativa(chiusure_titolo, chiusure_benchmark, periodi=60):
+  """Calcola la Forza Relativa (RS) a N giorni rispetto all'indice S&P 500 (SPY)."""
+  if len(chiusure_titolo) < periodi or len(chiusure_benchmark) < periodi:
+    return 0.0
+  perf_titolo = (chiusure_titolo.iloc[-1] / chiusure_titolo.iloc[-periodi]) - 1
+  perf_bench = (chiusure_benchmark.iloc[-1] / chiusure_benchmark.iloc[-periodi]) - 1
+  return round((perf_titolo - perf_bench) * 100, 2)
 
 def calcola_close_location_value(chiusura, minimo, massimo):
   rng = massimo - minimo
@@ -116,7 +151,6 @@ def calcola_volume_poc(chiusure, volumi, periodi=60, bins=10):
   return float((bin_edges[max_idx] + bin_edges[max_idx + 1]) / 2.0)
 
 def analizza_trend_volumi_5g(df):
-  """Analizza se i volumi nelle ultime 5 sedute stanno accelerando o raffreddandosi."""
   if len(df) < 5:
     return 'Stabile ➡️'
   v5 = df['Volume'].iloc[-5:].values
@@ -133,19 +167,15 @@ def analizza_trend_volumi_5g(df):
     return 'Stabile ➡️'
 
 def calcola_pendenza_regressione_volumi(df, periodi):
-  """Calcola la pendenza della retta di regressione sui volumi per il periodo specificato."""
   if len(df) < periodi:
     return 'N/D'
   y = df['Volume'].iloc[-periodi:].values
   x = np.arange(periodi)
-  # Calcolo slope con polyfit (grado 1)
   slope, _ = np.polyfit(x, y, 1)
   media_y = np.mean(y)
   if media_y == 0:
     return 'Stabile ➡️'
-  # Normalizziamo la pendenza in percentuale giornaliera rispetto alla media
   slope_pct = (slope / media_y) * 100
-  
   if slope_pct > 0.5:
     return 'In Crescita 📈'
   elif slope_pct < -0.5:
@@ -217,7 +247,7 @@ def verifica_salute_finanziaria_intelligente(t_obj, cmf_val):
   except Exception:
     return True, 'Dati fondamentali parziali, validato da analisi tecnica.'
 
-def valuta_idoneita_portafoglio(info, cmf_val, vsa_rating, storno_pct, is_bear_market):
+def valuta_idoneita_portafoglio(info, cmf_val, vsa_rating, storno_pct, is_bear_market, forza_relativa, sopra_vwap):
   try:
     fwd_pe = info.get('forwardPE', None)
     peg = info.get('pegRatio', None)
@@ -233,6 +263,9 @@ def valuta_idoneita_portafoglio(info, cmf_val, vsa_rating, storno_pct, is_bear_m
       punti_qualita += 1
     if storno_pct >= 20.0:
       punti_qualita += 1
+    if forza_relativa > 0 and sopra_vwap:
+      punti_qualita += 1
+      
     if punti_qualita >= 3:
       return '🟢 IDONEO: Azienda solida a sconto, ottima candidatura da passare in Portafoglio Personale!'
     elif punti_qualita == 2:
@@ -245,7 +278,7 @@ def valuta_idoneita_portafoglio(info, cmf_val, vsa_rating, storno_pct, is_bear_m
 # =====================================================================
 # 5. ANALISI DEL SINGOLO TITOLO & COSTRUZIONE VERDETTO AGGIORNATO
 # =====================================================================
-def analizza_titolo(ticker_str, data_oggi):
+def analizza_titolo(ticker_str, data_oggi, df_spy_close):
   try:
     t = yf.Ticker(ticker_str)
     df = t.history(period='1y')
@@ -295,6 +328,16 @@ def analizza_titolo(ticker_str, data_oggi):
     divergenza = rileva_divergenza_cmf(df)
     is_squeeze = calcola_volatilita_squeeze(df)
     
+    # Metriche avanzate integrate
+    vwap_serie = calcola_vwap_periodo(df, periodi=60)
+    vwap_val = float(vwap_serie.iloc[-1]) if not vwap_serie.empty and not np.isnan(vwap_serie.iloc[-1]) else prezzo_attuale
+    sopra_vwap = prezzo_attuale >= vwap_val
+    
+    atr_serie = calcola_atr(df, periodi=14)
+    atr_val = float(atr_serie.iloc[-1]) if not atr_serie.empty and not np.isnan(atr_serie.iloc[-1]) else 0.0
+    
+    forza_relativa = calcola_forza_relativa(df['Close'], df_spy_close, periodi=60) if not df_spy_close.empty else 0.0
+    
     media_vol_5g = df['Volume'].iloc[-5:].mean()
     media_vol_60g = df['Volume'].iloc[-60:].mean()
     rvol_5d_pct = round((media_vol_5g / media_vol_60g) * 100, 1) if media_vol_60g > 0 else 0.0
@@ -319,47 +362,52 @@ def analizza_titolo(ticker_str, data_oggi):
     else:
       vsa_rating = '🟡 NEUTRO'
       
-    # LOGICA VERDETTO AGGIORNATA CON IL FILTRO DEL TRIPLO BINARIO
+    # LOGICA VERDETTO AGGIORNATA CON INCROCIO DI FORZA RELATIVA E VWAP
     if short_pct != 'N/D' and float(short_pct) > 10 and cmf_corrente > 0.10 and is_squeeze:
       if trend_volumi_5g == 'In Raffreddamento 📉' or reg_vol_20g == 'In Esaurimento 📉':
-        verdetto = '⚠️ [ATTESA] SQUEEZE IN RAFFREDDAMENTO: Ottima struttura ma i volumi calano sui vari archi temporali. Aspetta.'
+        verdetto = '⚠️ [ATTESA] SQUEEZE IN RAFFREDDAMENTO: Ottima struttura ma i volumi calano. Aspetta.'
         orizzonte = 'Monitoraggio'
       else:
-        verdetto = '🔥 [BREVE] OCCASIONE SHORT SQUEEZE: Esplosivo, volumi in accelerazione e in crescita! Pronto al fuoco.'
+        verdetto = '🔥 [BREVE] OCCASIONE SHORT SQUEEZE: Esplosivo, volumi in accelerazione e RS a ' + f'{forza_relativa:+.1f}%.'
         orizzonte = 'Breve Termine (Esplosivo)'
     elif divergenza == 'Rialzista 🟢':
-      if reg_vol_50g == 'In Esaurimento 📉':
-        verdetto = '🔍 [ATTESA] DIVERGENZA SENZA SUPPORTO TRIMESTRALE: Divergenza presente ma il trend a 50gg è in calo. Prudenza.'
+      if reg_vol_50g == 'In Esaurimento 📉' or not sopra_vwap:
+        verdetto = '🔍 [ATTESA] DIVERGENZA SENZA SUPPORTO ISTITUZIONALE: Sotto VWAP o trend a 50gg debole. Prudenza.'
         orizzonte = 'Monitoraggio'
       else:
-        verdetto = '🚀 [BREVE/MEDIO] OCCASIONE D\'ORO: Divergenza rialzista con volumi strutturali a supporto! Timing perfetto.'
+        verdetto = '🚀 [BREVE/MEDIO] OCCASIONE D\'ORO: Divergenza rialzista, sopra VWAP e RS positiva! Timing perfetto.'
         orizzonte = 'Breve/Medio Termine'
-    elif distanza_minimo_60g_pct <= 3.0 and cmf_corrente >= 0.0:
-      verdetto = '💎 [ACCUMULO] VICINO AI MINIMI: Entra perché quest\'azienda è sana e non ti ricapita a questi prezzi.'
+    elif distanza_minimo_60g_pct <= 3.0 and cmf_corrente >= 0.0 and sopra_vwap:
+      verdetto = '💎 [ACCUMULO] VICINO AI MINIMI CON SUPPORTO VWAP: Azienda solida, test del supporto istituzionale superato.'
       orizzonte = 'Lungo Termine (Accumulo Silenzioso)'
-    elif not is_bear_market and cmf_corrente > 0.05:
-      verdetto = '🛡️ [CASSETTO] CARRO ARMATO IN BULL TREND: Struttura solida, cammina piano ma viaggia sicura sul lungo.'
+    elif not is_bear_market and cmf_corrente > 0.05 and forza_relativa > 0:
+      verdetto = '🛡️ [CASSETTO] LEADER IN BULL TREND: Struttura solida, volumi sani e sovraperformance rispetto a SPY.'
       orizzonte = 'Lungo Termine (Cassetto)'
     elif is_bear_market and cmf_corrente > 0.05:
-      verdetto = '💎 [PAC] SCONTO PROFONDO: Sotto SMA200 ma le mani forti stanno accumulando sul ribasso. Ottimo affare.'
+      verdetto = '💎 [PAC] SCONTO PROFONDO CON MANI FORTI: Sotto SMA200 ma accumulazione istituzionale attiva e ATR a ' + f'{atr_val:.2f}.'
       orizzonte = 'Lungo Termine (PAC a Sconto)'
     else:
-      verdetto = f'🔍 [ATTESA] MONITORARE: Struttura incerta ({vsa_rating}). Nota: {nota_bilancio}'
+      verdetto = f'🔍 [ATTESA] MONITORARE: Struttura incerta ({vsa_rating}, RS: {forza_relativa:+.1f}%). Nota: {nota_bilancio}'
       orizzonte = 'Monitoraggio / Attendere'
       
-    suggerimento_portafoglio = valuta_idoneita_portafoglio(info, cmf_corrente, vsa_rating, storno_pct, is_bear_market)
+    suggerimento_portafoglio = valuta_idoneita_portafoglio(info, cmf_corrente, vsa_rating, storno_pct, is_bear_market, forza_relativa, sopra_vwap)
     
     score = 50
-    if cmf_corrente > 0.10: score += 20
-    elif cmf_corrente > 0: score += 10
-    if curr['Close'] > curr['EMA20']: score += 10
-    if vsa_rating == '🟢 ACCUMULAZIONE PULITA': score += 15
-    if divergenza == 'Rialzista 🟢': score += 15
-    if trend_volumi_5g == 'In Accelerazione 📈': score += 10
-    elif trend_volumi_5g == 'In Raffreddamento 📉': score -= 15
-    if reg_vol_20g == 'In Crescita 📈': score += 10
-    if reg_vol_50g == 'In Crescita 📈': score += 10
-    elif reg_vol_50g == 'In Esaurimento 📉': score -= 10
+    if cmf_corrente > 0.10: score += 15
+    elif cmf_corrente > 0: score += 8
+    if forza_relativa > 5: score += 15
+    elif forza_relativa > 0: score += 8
+    elif forza_relativa < -5: score -= 10
+    if sopra_vwap: score += 10
+    else: score -= 10
+    if curr['Close'] > curr['EMA20']: score += 5
+    if vsa_rating == '🟢 ACCUMULAZIONE PULITA': score += 10
+    if divergenza == 'Rialzista 🟢': score += 10
+    if trend_volumi_5g == 'In Accelerazione 📈': score += 8
+    elif trend_volumi_5g == 'In Raffreddamento 📉': score -= 10
+    if reg_vol_20g == 'In Crescita 📈': score += 5
+    if reg_vol_50g == 'In Crescita 📈': score += 7
+    elif reg_vol_50g == 'In Esaurimento 📉': score -= 7
     score = max(0, min(100, int(score)))
     
     return {
@@ -371,6 +419,9 @@ def analizza_titolo(ticker_str, data_oggi):
         'Idoneità Portafoglio Personale (PAC/Lungo)': suggerimento_portafoglio,
         'Orizzonte Strategico': orizzonte,
         'Prezzo Attuale ($)': round(prezzo_attuale, 2),
+        'Forza Relativa (RS 60G)': f'{forza_relativa:+.1f}%',
+        'Sopra VWAP Trimestrale?': 'Sì 🟢' if sopra_vwap else 'No 🔴',
+        'ATR Dinamico (14G)': round(atr_val, 2),
         'Supporto 60G ($)': round(supporto_60g, 2),
         'Distanza dal Minimo 60G (%)': distanza_minimo_60g_pct,
         'Resistenza Max 52W ($)': round(massimo_52w, 2),
@@ -385,8 +436,8 @@ def analizza_titolo(ticker_str, data_oggi):
         'Divergenza CMF': divergenza,
         'Volumi 1W (% vs 60G)': rvol_5d_pct,
         'Trend Volumi 5G': trend_volumi_5g,
-        'Regressione Volumi 20G (1M)': reg_vol_20g,    # <--- NUOVA RETTA 20 SEDUTE
-        'Regressione Volumi 50G (3M)': reg_vol_50g,    # <--- NUOVA RETTA 50 SEDUTE
+        'Regressione Volumi 20G (1M)': reg_vol_20g,
+        'Regressione Volumi 50G (3M)': reg_vol_50g,
         'OBV Trend': obv_trend,
         'Analisi VSA (Flussi)': vsa_rating,
         'Squeeze Volatilità': 'Attivo 🔥' if is_squeeze else 'No',
@@ -440,7 +491,7 @@ def genera_excel(df_risultati):
     ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 50)
     
   data_oggi = datetime.now().strftime('%Y-%m-%d')
-  excel_file = f'Consulente_Smart_Money_{data_oggi}.xlsx'
+  excel_file = f'Consulente_Smart_Money_Advanced_{data_oggi}.xlsx'
   wb.save(excel_file)
   return excel_file
 
@@ -454,10 +505,10 @@ def invia_email_report(file_path, data_oggi, num_titoli):
   msg = MIMEMultipart()
   msg['From'] = SENDER_EMAIL
   msg['To'] = RECEIVER_EMAIL
-  msg['Subject'] = f'🧠 Report Consulente Smart Money ({data_oggi}) - Trovate {num_titoli} Occasioni'
+  msg['Subject'] = f'🧠 Report Consulente Smart Money Advanced ({data_oggi}) - Trovate {num_titoli} Occasioni'
   body = (
-      f'Ciao! Il tuo consulente virtuale ha completato l\'analisi in data {data_oggi}.\n\n'
-      f'Aggiornamento inserito: integrato il triplo binario dei volumi (5 sedute + Regressione 20G e 50G).\n'
+      f'Ciao! Il tuo consulente virtuale ha completato l\'analisi avanzata in data {data_oggi}.\n\n'
+      f'Aggiornamento inserito: integrazione completa di Forza Relativa (RS vs SPY), VWAP istituzionale, ATR dinamico e triplo binario dei volumi.\n'
       f'Buon gain!'
   )
   msg.attach(MIMEText(body, 'plain', 'utf-8'))
@@ -471,7 +522,7 @@ def invia_email_report(file_path, data_oggi, num_titoli):
     server.login(SENDER_EMAIL, APP_PASSWORD)
     server.send_message(msg)
     server.quit()
-    print('✅ E-mail con report Excel inviata con successo!')
+    print('✅ E-mail con report Excel avanzato inviata con successo!')
   except Exception as e:
     print(f'❌ Errore invio e-mail: {e}')
 
@@ -480,24 +531,32 @@ def invia_email_report(file_path, data_oggi, num_titoli):
 # =====================================================================
 if __name__ == '__main__':
   data_oggi = datetime.now().strftime('%Y-%m-%d')
-  print(f'=== Avvio Consulente Smart Money & Screener ({data_oggi}) ===')
+  print(f'=== Avvio Consulente Smart Money & Screener Advanced ({data_oggi}) ===')
+  
+  # Scarichiamo preventivamente il benchmark SPY per la Forza Relativa
+  print('📊 Download benchmark SPY in corso...')
+  df_spy_close = scarica_benchmark_spy()
+  
   tickers = ottieni_ticker_usa()
   print(f'Titoli totali in scansione: {len(tickers)}')
+  
   risultati = []
   for idx, t in enumerate(tickers):
-    res = analizza_titolo(t, data_oggi)
+    res = analizza_titolo(t, data_oggi, df_spy_close)
     if res:
       risultati.append(res)
     if (idx + 1) % 100 == 0:
       print(f'Analizzati {idx + 1}/{len(tickers)}...')
+      
   if risultati:
     df_res = pd.DataFrame(risultati)
     df_res = df_res.sort_values(by=['_score_interno', 'Chaikin Money Flow (CMF)'], ascending=False).reset_index(drop=True)
     for i in range(min(10, len(df_res))):
       df_res.at[i, 'TOP 10 OCCASIONI'] = f'⭐ TOP {i+1}'
     df_res = df_res.drop(columns=['_score_interno'])
+    
     excel_path = genera_excel(df_res)
     invia_email_report(excel_path, data_oggi, len(df_res))
-    print(f'🚀 Analisi completata! Il consulente ha selezionato {len(df_res)} occasioni salvate nel file Excel.')
+    print(f'🚀 Analisi avanzata completata! Il consulente ha selezionato {len(df_res)} occasioni salvate nel file Excel.')
   else:
     print('Nessun titolo rispetta i criteri del consulente per oggi.')
