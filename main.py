@@ -22,7 +22,7 @@ warnings.filterwarnings('ignore')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL')
 APP_PASSWORD = os.environ.get('APP_PASSWORD')
 RECEIVER_EMAIL = os.environ.get('RECEIVER_EMAIL', SENDER_EMAIL)
-SOGLIA_STORNO_MINIMA = 15.0  # Filtro base: il titolo deve essere in sconto di almeno il 15%
+SOGLIA_STORNO_MINIMA = 15.0 
 STATE_FILE = 'master_screener_stato_precedente.json'
 
 # =====================================================================
@@ -83,7 +83,7 @@ def ottieni_ticker_usa():
   return list(tickers)
 
 # =====================================================================
-# 2. MOTORE DI CALCOLO INDICATORI AVANZATI
+# 2. MOTORE DI CALCOLO INDICATORI AVANZATI (Triplo Binario Volumi)
 # =====================================================================
 def calcola_rsi(series, period=14):
   delta = series.diff()
@@ -115,6 +115,44 @@ def calcola_volume_poc(chiusure, volumi, periodi=60, bins=10):
   max_idx = np.argmax(counts)
   return float((bin_edges[max_idx] + bin_edges[max_idx + 1]) / 2.0)
 
+def analizza_trend_volumi_5g(df):
+  """Analizza se i volumi nelle ultime 5 sedute stanno accelerando o raffreddandosi."""
+  if len(df) < 5:
+    return 'Stabile ➡️'
+  v5 = df['Volume'].iloc[-5:].values
+  t_recenti = v5[-2:].mean()
+  t_passati = v5[:3].mean()
+  if t_passati == 0:
+    return 'Stabile ➡️'
+  ratio = t_recenti / t_passati
+  if ratio > 1.10:
+    return 'In Accelerazione 📈'
+  elif ratio < 0.90:
+    return 'In Raffreddamento 📉'
+  else:
+    return 'Stabile ➡️'
+
+def calcola_pendenza_regressione_volumi(df, periodi):
+  """Calcola la pendenza della retta di regressione sui volumi per il periodo specificato."""
+  if len(df) < periodi:
+    return 'N/D'
+  y = df['Volume'].iloc[-periodi:].values
+  x = np.arange(periodi)
+  # Calcolo slope con polyfit (grado 1)
+  slope, _ = np.polyfit(x, y, 1)
+  media_y = np.mean(y)
+  if media_y == 0:
+    return 'Stabile ➡️'
+  # Normalizziamo la pendenza in percentuale giornaliera rispetto alla media
+  slope_pct = (slope / media_y) * 100
+  
+  if slope_pct > 0.5:
+    return 'In Crescita 📈'
+  elif slope_pct < -0.5:
+    return 'In Esaurimento 📉'
+  else:
+    return 'Stabile ➡️'
+
 def rileva_divergenza_cmf(df, lookback=15):
   if len(df) < lookback + 5:
     return 'Assente'
@@ -143,11 +181,8 @@ def calcola_volatilita_squeeze(df, length=20):
 # 3. MAPPATURA SETTORE E SOTTOSETTORE
 # =====================================================================
 def ottieni_settore_e_sottosettore(info):
-  """Estrae settore e sottosettore da yfinance o assegna una categoria di fallback."""
   settore = info.get('sector', 'Altro / N/D')
   sottosettore = info.get('industry', 'Generico')
-  
-  # Normalizzazione in italiano per uniformità con il report
   traduzioni_settori = {
       'Technology': 'Tecnologia dell\'Informazione',
       'Industrials': 'Industriale',
@@ -161,9 +196,7 @@ def ottieni_settore_e_sottosettore(info):
       'Real Estate': 'Real Estate (REITs)',
       'Basic Materials': 'Materiali di Base'
   }
-  
-  settore_it = traduzioni_settori.get(settore, settore)
-  return settore_it, sottosettore
+  return traduzioni_settori.get(settore, settore), sottosettore
 
 # =====================================================================
 # 4. FILTRO FONDAMENTALE & IDONEITÀ PORTAFOGLIO
@@ -210,7 +243,7 @@ def valuta_idoneita_portafoglio(info, cmf_val, vsa_rating, storno_pct, is_bear_m
     return '🟡 NEUTRO: Dati insufficienti per valutare il lungo termine, gestisci come trade breve.'
 
 # =====================================================================
-# 5. ANALISI DEL SINGOLO TITOLO & COSTRUZIONE VERDETTO
+# 5. ANALISI DEL SINGOLO TITOLO & COSTRUZIONE VERDETTO AGGIORNATO
 # =====================================================================
 def analizza_titolo(ticker_str, data_oggi):
   try:
@@ -246,9 +279,7 @@ def analizza_titolo(ticker_str, data_oggi):
     nome_azienda = info.get('shortName') or info.get('longName') or ''
     ticker_display = f'{ticker_str} - {nome_azienda}' if nome_azienda else ticker_str
     
-    # Estrazione Settore e Sottosettore
     settore_it, sottosettore = ottieni_settore_e_sottosettore(info)
-
     target_price = info.get('targetMeanPrice', None)
     upside = round(((target_price - prezzo_attuale) / prezzo_attuale) * 100, 2) if target_price else 'N/D'
     fwd_pe = round(info.get('forwardPE'), 2) if info.get('forwardPE') else 'N/D'
@@ -268,6 +299,11 @@ def analizza_titolo(ticker_str, data_oggi):
     media_vol_60g = df['Volume'].iloc[-60:].mean()
     rvol_5d_pct = round((media_vol_5g / media_vol_60g) * 100, 1) if media_vol_60g > 0 else 0.0
     
+    # TRIPLO BINARIO VOLUMI
+    trend_volumi_5g = analizza_trend_volumi_5g(df)
+    reg_vol_20g = calcola_pendenza_regressione_volumi(df, 20)
+    reg_vol_50g = calcola_pendenza_regressione_volumi(df, 50)
+    
     obv_serie = calcola_obv(df['Close'], df['Volume'])
     obv_sma = obv_serie.rolling(20).mean()
     obv_trend = 'Rialzista (Accumulo)' if float(obv_serie.iloc[-1]) > float(obv_sma.iloc[-1]) else 'Ribassista (Distribuzione)'
@@ -283,12 +319,21 @@ def analizza_titolo(ticker_str, data_oggi):
     else:
       vsa_rating = '🟡 NEUTRO'
       
+    # LOGICA VERDETTO AGGIORNATA CON IL FILTRO DEL TRIPLO BINARIO
     if short_pct != 'N/D' and float(short_pct) > 10 and cmf_corrente > 0.10 and is_squeeze:
-      verdetto = '🔥 [BREVE] OCCASIONE SHORT SQUEEZE: Esplosivo, volumi alle stelle! Pronto al fuoco.'
-      orizzonte = 'Breve Termine (Esplosivo)'
+      if trend_volumi_5g == 'In Raffreddamento 📉' or reg_vol_20g == 'In Esaurimento 📉':
+        verdetto = '⚠️ [ATTESA] SQUEEZE IN RAFFREDDAMENTO: Ottima struttura ma i volumi calano sui vari archi temporali. Aspetta.'
+        orizzonte = 'Monitoraggio'
+      else:
+        verdetto = '🔥 [BREVE] OCCASIONE SHORT SQUEEZE: Esplosivo, volumi in accelerazione e in crescita! Pronto al fuoco.'
+        orizzonte = 'Breve Termine (Esplosivo)'
     elif divergenza == 'Rialzista 🟢':
-      verdetto = '🚀 [BREVE/MEDIO] OCCASIONE D\'ORO: Divergenza rialzista sui minimi, timing perfetto per un possibile trend di brevissimo!'
-      orizzonte = 'Breve/Medio Termine'
+      if reg_vol_50g == 'In Esaurimento 📉':
+        verdetto = '🔍 [ATTESA] DIVERGENZA SENZA SUPPORTO TRIMESTRALE: Divergenza presente ma il trend a 50gg è in calo. Prudenza.'
+        orizzonte = 'Monitoraggio'
+      else:
+        verdetto = '🚀 [BREVE/MEDIO] OCCASIONE D\'ORO: Divergenza rialzista con volumi strutturali a supporto! Timing perfetto.'
+        orizzonte = 'Breve/Medio Termine'
     elif distanza_minimo_60g_pct <= 3.0 and cmf_corrente >= 0.0:
       verdetto = '💎 [ACCUMULO] VICINO AI MINIMI: Entra perché quest\'azienda è sana e non ti ricapita a questi prezzi.'
       orizzonte = 'Lungo Termine (Accumulo Silenzioso)'
@@ -310,6 +355,11 @@ def analizza_titolo(ticker_str, data_oggi):
     if curr['Close'] > curr['EMA20']: score += 10
     if vsa_rating == '🟢 ACCUMULAZIONE PULITA': score += 15
     if divergenza == 'Rialzista 🟢': score += 15
+    if trend_volumi_5g == 'In Accelerazione 📈': score += 10
+    elif trend_volumi_5g == 'In Raffreddamento 📉': score -= 15
+    if reg_vol_20g == 'In Crescita 📈': score += 10
+    if reg_vol_50g == 'In Crescita 📈': score += 10
+    elif reg_vol_50g == 'In Esaurimento 📉': score -= 10
     score = max(0, min(100, int(score)))
     
     return {
@@ -334,6 +384,9 @@ def analizza_titolo(ticker_str, data_oggi):
         'Chaikin Money Flow (CMF)': round(cmf_corrente, 3),
         'Divergenza CMF': divergenza,
         'Volumi 1W (% vs 60G)': rvol_5d_pct,
+        'Trend Volumi 5G': trend_volumi_5g,
+        'Regressione Volumi 20G (1M)': reg_vol_20g,    # <--- NUOVA RETTA 20 SEDUTE
+        'Regressione Volumi 50G (3M)': reg_vol_50g,    # <--- NUOVA RETTA 50 SEDUTE
         'OBV Trend': obv_trend,
         'Analisi VSA (Flussi)': vsa_rating,
         'Squeeze Volatilità': 'Attivo 🔥' if is_squeeze else 'No',
@@ -404,8 +457,7 @@ def invia_email_report(file_path, data_oggi, num_titoli):
   msg['Subject'] = f'🧠 Report Consulente Smart Money ({data_oggi}) - Trovate {num_titoli} Occasioni'
   body = (
       f'Ciao! Il tuo consulente virtuale ha completato l\'analisi in data {data_oggi}.\n\n'
-      f'Sono state filtrate le migliori occasioni di mercato ordinate per rimbalzo/exploit di breve termine.\n'
-      f'Nel file Excel troverai adesso le colonne "Settore" e "Sottosettore" per ottimizzare la diversificazione del tuo portafoglio.\n\n'
+      f'Aggiornamento inserito: integrato il triplo binario dei volumi (5 sedute + Regressione 20G e 50G).\n'
       f'Buon gain!'
   )
   msg.attach(MIMEText(body, 'plain', 'utf-8'))
