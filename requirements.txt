@@ -1,4 +1,6 @@
-yfinance
-pandas
-requests
-openpyxl
+yfinance>=0.2.54
+pandas>=2.0
+numpy>=1.26
+openpyxl>=3.1
+requests>=2.31
+lxml>=5.0
