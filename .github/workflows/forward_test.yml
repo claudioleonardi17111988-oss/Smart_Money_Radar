@@ -1,0 +1,28 @@
+name: Forward test
+
+on:
+  schedule:
+    - cron: '0 9 * * 6'     # sabato 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  forward-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python forward_test.py
+      - name: Committa report
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/forward_test.md || true
+          git diff --cached --quiet || (git commit -m "chore: forward test $(date -u +%F)" && git push)

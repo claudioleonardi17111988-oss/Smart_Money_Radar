@@ -1,0 +1,79 @@
+name: Money Flow Pro
+
+on:
+  schedule:
+    # 22:30 UTC, lun-ven: dopo la chiusura NYSE sia con ora legale (20:00 UTC) sia solare (21:00 UTC)
+    - cron: '30 22 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Analizza solo i primi N ticker (test). Vuoto = tutti'
+        required: false
+        default: ''
+
+permissions:
+  contents: write        # serve per committare data/picks_history.csv
+
+concurrency:
+  group: money-flow
+  cancel-in-progress: false
+
+jobs:
+  screener:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # cache fondamentali: ogni run salva una nuova cache e ripristina l'ultima disponibile
+      - name: Ripristina cache fondamentali
+        uses: actions/cache/restore@v4
+        with:
+          path: data/cache
+          key: fund-cache-${{ github.run_id }}
+          restore-keys: fund-cache-
+
+      - name: Esegui screener
+        env:
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+          LIMIT: ${{ github.event.inputs.limit }}
+        run: |
+          if [ -n "$LIMIT" ]; then
+            python money_flow_pro.py --limit "$LIMIT"
+          else
+            python money_flow_pro.py
+          fi
+
+      - name: Salva cache fondamentali
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/cache
+          key: fund-cache-${{ github.run_id }}
+
+      - name: Committa storico segnalazioni
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/picks_history.csv data/universe_cache.json || true
+          git diff --cached --quiet || (git commit -m "chore: storico segnalazioni $(date -u +%F)" && git push)
+
+      # backup del report se l'email dovesse fallire (attenzione: repo pubblico = scaricabile da chiunque abbia un account GitHub)
+      - name: Salva report come artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-excel
+          path: Consulente_Smart_Money_*.xlsx
+          retention-days: 7
+          if-no-files-found: ignore
