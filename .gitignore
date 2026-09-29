@@ -1,0 +1,6 @@
+# cache fondamentali (ricostruita da actions/cache)
+data/cache/
+# report Excel: vengono inviati via email, non committati
+*.xlsx
+__pycache__/
+.venv/
