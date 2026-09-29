@@ -14,7 +14,6 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 import pandas as pd
 import requests
 import yfinance as yf
-
 warnings.filterwarnings('ignore')
 
 # =====================================================================
@@ -23,7 +22,7 @@ warnings.filterwarnings('ignore')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL')
 APP_PASSWORD = os.environ.get('APP_PASSWORD')
 RECEIVER_EMAIL = os.environ.get('RECEIVER_EMAIL', SENDER_EMAIL)
-SOGLIA_STORNO_MINIMA = 15.0 
+SOGLIA_STORNO_MINIMA = 15.0
 STATE_FILE = 'master_screener_stato_precedente.json'
 
 # =====================================================================
@@ -49,7 +48,7 @@ def salva_stato_attuale(df_res):
     json.dump(nuovo_stato, f, indent=4, ensure_ascii=False)
 
 # =====================================================================
-# 1. RECUPERO TICKER (S&P 500 + NASDAQ 100 + MIDCAP 400 + SPY BENCHMARK)
+# 1. RECUPERO TICKER (S&P 500 + NASDAQ 100 + MIDCAP 400)
 # =====================================================================
 def _fetch_wikipedia_table(url):
   headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
@@ -59,43 +58,71 @@ def _fetch_wikipedia_table(url):
 def ottieni_ticker_usa():
   tickers = set()
   try:
-    df_sp = pd.read_csv('https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv')
-    tickers.update(df_sp['Symbol'].str.replace('.', '-', regex=False).str.strip().tolist())
+    df_sp = pd.read_csv(
+        'https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv'
+    )
+    tickers.update(
+        df_sp['Symbol']
+        .str.replace('.', '-', regex=False)
+        .str.strip()
+        .tolist()
+    )
   except Exception as e:
     print(f'Errore recupero S&P 500: {e}')
   try:
     tables = _fetch_wikipedia_table('https://en.wikipedia.org/wiki/Nasdaq-100')
     for df in tables:
-      col = next((c for c in df.columns if str(c).lower() in ['ticker', 'symbol', 'company stock symbol']), None)
+      col = next(
+          (
+              c
+              for c in df.columns
+              if str(c).lower()
+              in ['ticker', 'symbol', 'company stock symbol']
+          ),
+          None,
+      )
       if col:
-        tickers.update(df[col].dropna().astype(str).str.replace('.', '-', regex=False).str.strip().tolist())
+        tickers.update(
+            df[col]
+            .dropna()
+            .astype(str)
+            .str.replace('.', '-', regex=False)
+            .str.strip()
+            .tolist()
+        )
         break
   except Exception as e:
     print(f'Errore recupero Nasdaq 100: {e}')
   try:
-    tables = _fetch_wikipedia_table('https://en.wikipedia.org/wiki/List_of_S%26P_400_companies')
+    tables = _fetch_wikipedia_table(
+        'https://en.wikipedia.org/wiki/List_of_S%26P_400_companies'
+    )
     for df in tables:
-      col = next((c for c in df.columns if str(c).lower() in ['symbol', 'ticker', 'company stock symbol']), None)
+      col = next(
+          (
+              c
+              for c in df.columns
+              if str(c).lower()
+              in ['symbol', 'ticker', 'company stock symbol']
+          ),
+          None,
+      )
       if col:
-        tickers.update(df[col].dropna().astype(str).str.replace('.', '-', regex=False).str.strip().tolist())
+        tickers.update(
+            df[col]
+            .dropna()
+            .astype(str)
+            .str.replace('.', '-', regex=False)
+            .str.strip()
+            .tolist()
+        )
         break
   except Exception as e:
     print(f'Errore recupero S&P MidCap 400: {e}')
   return list(tickers)
 
-def scarica_benchmark_spy():
-  """Scarica lo storico di SPY per calcolare la Forza Relativa."""
-  try:
-    df_spy = yf.download('SPY', period='1y', auto_adjust=True, progress=False)
-    if isinstance(df_spy.columns, pd.MultiIndex):
-      df_spy.columns = df_spy.columns.get_level_values(0)
-    return df_spy['Close'].dropna()
-  except Exception as e:
-    print(f'⚠️ Impossibile scaricare il benchmark SPY: {e}')
-    return pd.Series(dtype=float)
-
 # =====================================================================
-# 2. MOTORE DI CALCOLO INDICATORI AVANZATI (Triplo Binario & Metriche Master)
+# 2. MOTORE DI CALCOLO INDICATORI AVANZATI & FAIR VALUE MULTI-MODELLO
 # =====================================================================
 def calcola_rsi(series, period=14):
   delta = series.diff()
@@ -108,32 +135,13 @@ def calcola_obv(chiusure, volumi):
   return (np.sign(chiusure.diff()) * volumi).fillna(0).cumsum()
 
 def calcola_cmf(massimi, minimi, chiusure, volumi, periodi=20):
-  mf_multiplier = ((chiusure - minimi) - (massimi - chiusure)) / (massimi - minimi + 1e-10)
+  mf_multiplier = ((chiusure - minimi) - (massimi - chiusure)) / (
+      massimi - minimi + 1e-10
+  )
   mf_volume = mf_multiplier * volumi
-  return mf_volume.rolling(window=periodi).sum() / (volumi.rolling(window=periodi).sum() + 1e-10)
-
-def calcola_vwap_periodo(df, periodi=60):
-  """Calcola il VWAP istituzionale basato sulle ultime sedute (trimestrale)."""
-  typical_price = (df['High'] + df['Low'] + df['Close']) / 3.0
-  tp_vol = (typical_price * df['Volume']).rolling(window=periodi).sum()
-  vol_sum = df['Volume'].rolling(window=periodi).sum() + 1e-10
-  return tp_vol / vol_sum
-
-def calcola_atr(df, periodi=14):
-  """Calcola l'Average True Range (ATR) per la volatilità dinamica."""
-  tr1 = df['High'] - df['Low']
-  tr2 = (df['High'] - df['Close'].shift()).abs()
-  tr3 = (df['Low'] - df['Close'].shift()).abs()
-  tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-  return tr.rolling(window=periodi).mean()
-
-def calcola_forza_relativa(chiusure_titolo, chiusure_benchmark, periodi=60):
-  """Calcola la Forza Relativa (RS) a N giorni rispetto all'indice S&P 500 (SPY)."""
-  if len(chiusure_titolo) < periodi or len(chiusure_benchmark) < periodi:
-    return 0.0
-  perf_titolo = (chiusure_titolo.iloc[-1] / chiusure_titolo.iloc[-periodi]) - 1
-  perf_bench = (chiusure_benchmark.iloc[-1] / chiusure_benchmark.iloc[-periodi]) - 1
-  return round((perf_titolo - perf_bench) * 100, 2)
+  return mf_volume.rolling(window=periodi).sum() / (
+      volumi.rolling(window=periodi).sum() + 1e-10
+  )
 
 def calcola_close_location_value(chiusura, minimo, massimo):
   rng = massimo - minimo
@@ -189,10 +197,14 @@ def rileva_divergenza_cmf(df, lookback=15):
   sub_df = df.iloc[-lookback:].copy()
   prices = sub_df['Close'].values
   cmf_vals = sub_df['CMF'].values
-  p_min1, p_min2 = np.min(prices[:lookback // 2]), np.min(prices[lookback // 2:])
-  c_min1, c_min2 = np.min(cmf_vals[:lookback // 2]), np.min(cmf_vals[lookback // 2:])
-  p_max1, p_max2 = np.max(prices[:lookback // 2]), np.max(prices[lookback // 2:])
-  c_max1, c_max2 = np.max(cmf_vals[:lookback // 2]), np.max(cmf_vals[lookback // 2:])
+  p_min1, p_min2 = np.min(prices[: lookback // 2]), np.min(prices[lookback // 2 :])
+  c_min1, c_min2 = np.min(cmf_vals[: lookback // 2]), np.min(
+      cmf_vals[lookback // 2 :]
+  )
+  p_max1, p_max2 = np.max(prices[: lookback // 2]), np.max(prices[lookback // 2 :])
+  c_max1, c_max2 = np.max(cmf_vals[: lookback // 2]), np.max(
+      cmf_vals[lookback // 2 :]
+  )
   if p_min2 < p_min1 and c_min2 > c_min1:
     return 'Rialzista 🟢'
   if p_max2 > p_max1 and c_max2 < c_max1:
@@ -203,9 +215,58 @@ def calcola_volatilita_squeeze(df, length=20):
   sma = df['Close'].rolling(window=length).mean()
   std = df['Close'].rolling(window=length).std()
   bb_upper, bb_lower = sma + (2 * std), sma - (2 * std)
-  atr = (df['High'] - df['Low']).combine((df['High'] - df['Close'].shift()).abs(), max).combine((df['Low'] - df['Close'].shift()).abs(), max).rolling(window=length).mean()
+  atr = (
+      (df['High'] - df['Low'])
+      .combine((df['High'] - df['Close'].shift()).abs(), max)
+      .combine((df['Low'] - df['Close'].shift()).abs(), max)
+      .rolling(window=length)
+      .mean()
+  )
   kc_upper, kc_lower = sma + (1.5 * atr), sma - (1.5 * atr)
-  return (bb_upper.iloc[-1] <= kc_upper.iloc[-1]) and (bb_lower.iloc[-1] >= kc_lower.iloc[-1])
+  return (bb_upper.iloc[-1] <= kc_upper.iloc[-1]) and (
+      bb_lower.iloc[-1] >= kc_lower.iloc[-1]
+  )
+
+def stima_fair_value_intelligente(info, prezzo_attuale, settore):
+  """Calcola il Fair Value adattandolo dinamicamente al settore e alla tipologia aziendale."""
+  try:
+    target_mean = info.get('targetMeanPrice', None)
+    eps_fwd = info.get('forwardEps', None)
+    earnings_growth = info.get('earningsGrowth', 0)
+    book_value = info.get('bookValue', None)
+    
+    fair_value = None
+    metodo_usato = "Target Analisti"
+
+    # 1. SETTORE FINANZIARIO / BANCHE -> Usiamo il Book Value (Prezzo/Patrimonio)
+    if settore == 'Finanziari' and book_value and book_value > 0:
+      fair_value = book_value * 1.3
+      metodo_usato = "Book Value (Settore Finanziario)"
+
+    # 2. AZIENDE GROWTH (Tech, Health, Consumer Discretionary) -> Metodo Peter Lynch
+    elif settore in ["Tecnologia dell'Informazione", 'Salute', "Beni di Consumo Discrezionali"] and eps_fwd and eps_fwd > 0:
+      growth_pct = (earnings_growth * 100) if earnings_growth else 10
+      if growth_pct > 0:
+        fair_pe = max(12, min(35, growth_pct))
+        fair_value = eps_fwd * fair_pe
+        metodo_usato = "Peter Lynch (Growth PEG)"
+
+    # 3. AZIENDE VALUE / UTILITIES / INDUSTRIALI -> Multiplo Prudente P/E 15
+    else:
+      if eps_fwd and eps_fwd > 0:
+        fair_value = eps_fwd * 15
+        metodo_usato = "Multiplo Prudente P/E 15 (Value)"
+
+    # Se i calcoli specifici falliscono, ripieghiamo sul Target degli Analisti o fallback
+    if not fair_value or fair_value <= 0:
+      fair_value = target_mean if (target_mean and target_mean > 0) else prezzo_attuale * 1.15
+      metodo_usato = "Target Consensus Analisti"
+
+    sconto_fv_pct = round(((fair_value - prezzo_attuale) / fair_value) * 100, 2)
+    return round(fair_value, 2), sconto_fv_pct, metodo_usato
+
+  except Exception:
+    return round(prezzo_attuale * 1.15, 2), 15.0, "Fallback Standard"
 
 # =====================================================================
 # 3. MAPPATURA SETTORE E SOTTOSETTORE
@@ -214,7 +275,7 @@ def ottieni_settore_e_sottosettore(info):
   settore = info.get('sector', 'Altro / N/D')
   sottosettore = info.get('industry', 'Generico')
   traduzioni_settori = {
-      'Technology': 'Tecnologia dell\'Informazione',
+      'Technology': "Tecnologia dell'Informazione",
       'Industrials': 'Industriale',
       'Financial Services': 'Finanziari',
       'Consumer Cyclical': 'Beni di Consumo Discrezionali',
@@ -224,12 +285,12 @@ def ottieni_settore_e_sottosettore(info):
       'Consumer Defensive': 'Beni di Consumo Primari',
       'Communication Services': 'Servizi di Comunicazione',
       'Real Estate': 'Real Estate (REITs)',
-      'Basic Materials': 'Materiali di Base'
+      'Basic Materials': 'Materiali di Base',
   }
   return traduzioni_settori.get(settore, settore), sottosettore
 
 # =====================================================================
-# 4. FILTRO FONDAMENTALE & IDONEITÀ PORTAFOGLIO
+# 4. FILTRO FONDAMENTALE INTELLIGENTE CON BONUS R&D
 # =====================================================================
 def verifica_salute_finanziaria_intelligente(t_obj, cmf_val):
   try:
@@ -237,23 +298,64 @@ def verifica_salute_finanziaria_intelligente(t_obj, cmf_val):
     revenue_growth = info.get('revenueGrowth', None)
     earnings_growth = info.get('earningsGrowth', None)
     debt_to_equity = info.get('debtToEquity', None)
+    rd_expense = 0
+    total_rev = info.get('totalRevenue', 1)
+    try:
+      fin = t_obj.financials
+      if fin is not None and not fin.empty:
+        for row_name in fin.index:
+          if 'research' in str(row_name).lower() or 'development' in str(
+              row_name
+          ).lower():
+            rd_expense = abs(float(fin.loc[row_name].iloc[0]))
+            break
+    except Exception:
+      pass
+    rd_ratio = (rd_expense / total_rev) if total_rev and total_rev > 0 else 0
+    is_rd_heavy = rd_ratio > 0.15
     if revenue_growth is not None and revenue_growth < -0.30 and cmf_val < 0.10:
+      if is_rd_heavy:
+        return (
+            True,
+            'Crollo ricavi giustificato da pesanti investimenti strategici in'
+            ' R&D.',
+        )
       return False, 'Crollo pesante dei ricavi senza supporto istituzionale.'
     if debt_to_equity is not None and debt_to_equity > 400 and cmf_val < 0.05:
+      if is_rd_heavy:
+        return (
+            True,
+            'Indice di indebitamento elevato ma sostenuto da forte spesa in'
+            ' R&D.',
+        )
       return False, 'Indice di indebitamento critico senza flussi a favore.'
     if earnings_growth is not None and earnings_growth < -0.35 and cmf_val < 0.05:
+      if is_rd_heavy:
+        return (
+            True,
+            'Utili compressi da investimenti aggressivi in Ricerca e Sviluppo.',
+        )
       return False, 'Utili in forte calo senza interesse delle mani forti.'
     return True, 'Azienda solida o in fase di investimento strategico.'
   except Exception:
     return True, 'Dati fondamentali parziali, validato da analisi tecnica.'
 
-def valuta_idoneita_portafoglio(info, cmf_val, vsa_rating, storno_pct, is_bear_market, forza_relativa, sopra_vwap):
+def valuta_idoneita_portafoglio(
+    info, cmf_val, vsa_rating, storno_pct, is_bear_market
+):
   try:
     fwd_pe = info.get('forwardPE', None)
     peg = info.get('pegRatio', None)
-    short_pct = info.get('shortPercentOfFloat', 0) * 100 if info.get('shortPercentOfFloat') else 0
+    short_pct = (
+        info.get('shortPercentOfFloat', 0) * 100
+        if info.get('shortPercentOfFloat')
+        else 0
+    )
     if short_pct > 12 and (fwd_pe is None or fwd_pe > 40):
-      return '🔴 SOLO TRADE BREVE: Volatilità da squeeze speculativo. Non idoneo al cassetto.'
+      return (
+          '🔴 SOLO TRADE BREVE: Volatilità da squeeze speculativo. Non idoneo al'
+          ' cassetto.'
+      )
     punti_qualita = 0
     if fwd_pe is not None and 0 < fwd_pe < 25:
       punti_qualita += 1
@@ -263,22 +365,31 @@ def valuta_idoneita_portafoglio(info, cmf_val, vsa_rating, storno_pct, is_bear_m
       punti_qualita += 1
     if storno_pct >= 20.0:
       punti_qualita += 1
-    if forza_relativa > 0 and sopra_vwap:
-      punti_qualita += 1
-      
     if punti_qualita >= 3:
-      return '🟢 IDONEO: Azienda solida a sconto, ottima candidatura da passare in Portafoglio Personale!'
+      return (
+          '🟢 IDONEO: Azienda solida a sconto, ottima candidatura da passare in'
+          ' Portafoglio Personale!'
+      )
     elif punti_qualita == 2:
-      return '🟡 CON RISERVA: Buon rimbalzo di breve. Verifica i dati di bilancio prima di un PAC.'
+      return (
+          '🟡 CON RISERVA: Buon rimbalzo di breve. Verifica i dati di bilancio'
+          ' prima di un PAC.'
+      )
     else:
-      return '🔴 SOLO TRADE BREVE: Buona dinamica tecnica/volumi, ma poco adatta al lungo termine.'
+      return (
+          '🔴 SOLO TRADE BREVE: Buona dinamica tecnica/volumi, ma poco adatta'
+          ' al lungo termine.'
+      )
   except Exception:
-    return '🟡 NEUTRO: Dati insufficienti per valutare il lungo termine, gestisci come trade breve.'
+    return (
+        '🟡 NEUTRO: Dati insufficienti per valutare il lungo termine,'
+        ' gestisci come trade breve.'
+    )
 
 # =====================================================================
 # 5. ANALISI DEL SINGOLO TITOLO & COSTRUZIONE VERDETTO AGGIORNATO
 # =====================================================================
-def analizza_titolo(ticker_str, data_oggi, df_spy_close):
+def analizza_titolo(ticker_str, data_oggi):
   try:
     t = yf.Ticker(ticker_str)
     df = t.history(period='1y')
@@ -286,7 +397,6 @@ def analizza_titolo(ticker_str, data_oggi, df_spy_close):
       return None
     if isinstance(df.columns, pd.MultiIndex):
       df.columns = df.columns.get_level_values(0)
-    
     df['CMF'] = calcola_cmf(df['High'], df['Low'], df['Close'], df['Volume'])
     df['RSI'] = calcola_rsi(df['Close'])
     df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
@@ -298,116 +408,170 @@ def analizza_titolo(ticker_str, data_oggi, df_spy_close):
     minimo_52w = float(df['Low'].min())
     supporto_60g = float(df['Close'].iloc[-60:].min())
     minimo_60g = supporto_60g
-    
     storno_pct = ((massimo_52w - prezzo_attuale) / massimo_52w) * 100
     if storno_pct < SOGLIA_STORNO_MINIMA:
       return None
-      
     cmf_corrente = float(curr['CMF'])
-    is_sano, nota_bilancio = verifica_salute_finanziaria_intelligente(t, cmf_corrente)
+    is_sano, nota_bilancio = verifica_salute_finanziaria_intelligente(
+        t, cmf_corrente
+    )
     if not is_sano:
       return None
-      
+    
     info = t.info or {}
-    nome_azienda = info.get('shortName') or info.get('longName') or ''
-    ticker_display = f'{ticker_str} - {nome_azienda}' if nome_azienda else ticker_str
-    
     settore_it, sottosettore = ottieni_settore_e_sottosettore(info)
-    target_price = info.get('targetMeanPrice', None)
-    upside = round(((target_price - prezzo_attuale) / prezzo_attuale) * 100, 2) if target_price else 'N/D'
-    fwd_pe = round(info.get('forwardPE'), 2) if info.get('forwardPE') else 'N/D'
-    peg = round(info.get('pegRatio'), 2) if info.get('pegRatio') else 'N/D'
-    short_pct = round(info.get('shortPercentOfFloat', 0) * 100, 2) if info.get('shortPercentOfFloat') else 'N/D'
+    fair_value, sconto_fv_pct, metodo_valutazione = stima_fair_value_intelligente(info, prezzo_attuale, settore_it)
     
+    nome_azienda = info.get('shortName') or info.get('longName') or ''
+    ticker_display = (
+        f'{ticker_str} - {nome_azienda}' if nome_azienda else ticker_str
+    )
+    target_price = info.get('targetMeanPrice', None)
+    upside = (
+        round(
+            ((target_price - prezzo_attuale) / prezzo_attuale) * 100,
+            2,
+        )
+        if target_price
+        else 'N/D'
+    )
+    fwd_pe = (
+        round(info.get('forwardPE'), 2) if info.get('forwardPE') else 'N/D'
+    )
+    peg = round(info.get('pegRatio'), 2) if info.get('pegRatio') else 'N/D'
+    short_pct = (
+        round(info.get('shortPercentOfFloat', 0) * 100, 2)
+        if info.get('shortPercentOfFloat')
+        else 'N/D'
+    )
     sma_50 = float(curr['SMA50'])
     sma_200 = float(curr['SMA200'])
     dist_sma50_pct = round(((prezzo_attuale - sma_50) / sma_50) * 100, 2)
     dist_sma200_pct = round(((prezzo_attuale - sma_200) / sma_200) * 100, 2)
-    distanza_minimo_60g_pct = round(((prezzo_attuale - minimo_60g) / minimo_60g) * 100, 2)
+    distanza_minimo_60g_pct = round(
+        ((prezzo_attuale - minimo_60g) / minimo_60g) * 100, 2
+    )
     is_bear_market = prezzo_attuale < sma_200
     divergenza = rileva_divergenza_cmf(df)
     is_squeeze = calcola_volatilita_squeeze(df)
-    
-    # Metriche avanzate integrate
-    vwap_serie = calcola_vwap_periodo(df, periodi=60)
-    vwap_val = float(vwap_serie.iloc[-1]) if not vwap_serie.empty and not np.isnan(vwap_serie.iloc[-1]) else prezzo_attuale
-    sopra_vwap = prezzo_attuale >= vwap_val
-    
-    atr_serie = calcola_atr(df, periodi=14)
-    atr_val = float(atr_serie.iloc[-1]) if not atr_serie.empty and not np.isnan(atr_serie.iloc[-1]) else 0.0
-    
-    forza_relativa = calcola_forza_relativa(df['Close'], df_spy_close, periodi=60) if not df_spy_close.empty else 0.0
-    
     media_vol_5g = df['Volume'].iloc[-5:].mean()
     media_vol_60g = df['Volume'].iloc[-60:].mean()
-    rvol_5d_pct = round((media_vol_5g / media_vol_60g) * 100, 1) if media_vol_60g > 0 else 0.0
-    
-    # TRIPLO BINARIO VOLUMI
+    rvol_5d_pct = (
+        round((media_vol_5g / media_vol_60g) * 100, 1)
+        if media_vol_60g > 0
+        else 0.0
+    )
     trend_volumi_5g = analizza_trend_volumi_5g(df)
     reg_vol_20g = calcola_pendenza_regressione_volumi(df, 20)
     reg_vol_50g = calcola_pendenza_regressione_volumi(df, 50)
-    
     obv_serie = calcola_obv(df['Close'], df['Volume'])
     obv_sma = obv_serie.rolling(20).mean()
-    obv_trend = 'Rialzista (Accumulo)' if float(obv_serie.iloc[-1]) > float(obv_sma.iloc[-1]) else 'Ribassista (Distribuzione)'
-    
-    clv_5d = [calcola_close_location_value(df['Close'].iloc[i], df['Low'].iloc[i], df['High'].iloc[i]) for i in range(-5, 0)]
+    obv_trend = (
+        'Rialzista (Accumulo)'
+        if float(obv_serie.iloc[-1]) > float(obv_sma.iloc[-1])
+        else 'Ribassista (Distribuzione)'
+    )
+    clv_5d = [
+        calcola_close_location_value(
+            df['Close'].iloc[i], df['Low'].iloc[i], df['High'].iloc[i]
+        )
+        for i in range(-5, 0)
+    ]
     clv_val = float(np.mean(clv_5d))
     poc_val = calcola_volume_poc(df['Close'], df['Volume'], periodi=60)
-    
     if cmf_corrente > 0.05 and clv_val >= 0.55:
       vsa_rating = '🟢 ACCUMULAZIONE PULITA'
     elif cmf_corrente < -0.05 and clv_val <= 0.45:
       vsa_rating = '🔴 DISTRIBUZIONE'
     else:
       vsa_rating = '🟡 NEUTRO'
-      
-    # LOGICA VERDETTO AGGIORNATA CON INCROCIO DI FORZA RELATIVA E VWAP
-    if short_pct != 'N/D' and float(short_pct) > 10 and cmf_corrente > 0.10 and is_squeeze:
-      if trend_volumi_5g == 'In Raffreddamento 📉' or reg_vol_20g == 'In Esaurimento 📉':
-        verdetto = '⚠️ [ATTESA] SQUEEZE IN RAFFREDDAMENTO: Ottima struttura ma i volumi calano. Aspetta.'
+    
+    if (
+        short_pct != 'N/D'
+        and float(short_pct) > 10
+        and cmf_corrente > 0.10
+        and is_squeeze
+    ):
+      if (
+          trend_volumi_5g == 'In Raffreddamento 📉'
+          or reg_vol_20g == 'In Esaurimento 📉'
+      ):
+        verdetto = (
+            '⚠️ [ATTESA] SQUEEZE IN RAFFREDDAMENTO: Ottima struttura ma i'
+            ' volumi calano. Aspetta.'
+        )
         orizzonte = 'Monitoraggio'
       else:
-        verdetto = '🔥 [BREVE] OCCASIONE SHORT SQUEEZE: Esplosivo, volumi in accelerazione e RS a ' + f'{forza_relativa:+.1f}%.'
+        verdetto = (
+            '🔥 [BREVE] OCCASIONE SHORT SQUEEZE: Esplosivo, volumi in'
+            ' accelerazione!'
+        )
         orizzonte = 'Breve Termine (Esplosivo)'
     elif divergenza == 'Rialzista 🟢':
-      if reg_vol_50g == 'In Esaurimento 📉' or not sopra_vwap:
-        verdetto = '🔍 [ATTESA] DIVERGENZA SENZA SUPPORTO ISTITUZIONALE: Sotto VWAP o trend a 50gg debole. Prudenza.'
+      if reg_vol_50g == 'In Esaurimento 📉':
+        verdetto = (
+            '🔍 [ATTESA] DIVERGENZA SENZA SUPPORTO TRIMESTRALE: Trend a 50gg in'
+            ' calo.'
+        )
         orizzonte = 'Monitoraggio'
       else:
-        verdetto = '🚀 [BREVE/MEDIO] OCCASIONE D\'ORO: Divergenza rialzista, sopra VWAP e RS positiva! Timing perfetto.'
+        verdetto = (
+            "🚀 [BREVE/MEDIO] OCCASIONE D'ORO: Divergenza rialzista con volumi"
+            ' a supporto!'
+        )
         orizzonte = 'Breve/Medio Termine'
-    elif distanza_minimo_60g_pct <= 3.0 and cmf_corrente >= 0.0 and sopra_vwap:
-      verdetto = '💎 [ACCUMULO] VICINO AI MINIMI CON SUPPORTO VWAP: Azienda solida, test del supporto istituzionale superato.'
+    elif distanza_minimo_60g_pct <= 3.0 and cmf_corrente >= 0.0:
+      verdetto = (
+          "💎 [ACCUMULO] VICINO AI MINIMI: Entra perché l'azienda è sana."
+      )
       orizzonte = 'Lungo Termine (Accumulo Silenzioso)'
-    elif not is_bear_market and cmf_corrente > 0.05 and forza_relativa > 0:
-      verdetto = '🛡️ [CASSETTO] LEADER IN BULL TREND: Struttura solida, volumi sani e sovraperformance rispetto a SPY.'
+    elif not is_bear_market and cmf_corrente > 0.05:
+      verdetto = (
+          '🛡️ [CASSETTO] CARRO ARMATO IN BULL TREND: Struttura solida di lungo.'
+      )
       orizzonte = 'Lungo Termine (Cassetto)'
     elif is_bear_market and cmf_corrente > 0.05:
-      verdetto = '💎 [PAC] SCONTO PROFONDO CON MANI FORTI: Sotto SMA200 ma accumulazione istituzionale attiva e ATR a ' + f'{atr_val:.2f}.'
+      verdetto = (
+          '💎 [PAC] SCONTO PROFONDO: Sotto SMA200 ma mani forti in accumulo.'
+      )
       orizzonte = 'Lungo Termine (PAC a Sconto)'
     else:
-      verdetto = f'🔍 [ATTESA] MONITORARE: Struttura incerta ({vsa_rating}, RS: {forza_relativa:+.1f}%). Nota: {nota_bilancio}'
+      verdetto = f'🔍 [ATTESA] MONITORARE: Struttura incerta ({vsa_rating}).'
       orizzonte = 'Monitoraggio / Attendere'
-      
-    suggerimento_portafoglio = valuta_idoneita_portafoglio(info, cmf_corrente, vsa_rating, storno_pct, is_bear_market, forza_relativa, sopra_vwap)
+    
+    suggerimento_portafoglio = valuta_idoneita_portafoglio(
+        info, cmf_corrente, vsa_rating, storno_pct, is_bear_market
+    )
     
     score = 50
-    if cmf_corrente > 0.10: score += 15
-    elif cmf_corrente > 0: score += 8
-    if forza_relativa > 5: score += 15
-    elif forza_relativa > 0: score += 8
-    elif forza_relativa < -5: score -= 10
-    if sopra_vwap: score += 10
-    else: score -= 10
-    if curr['Close'] > curr['EMA20']: score += 5
-    if vsa_rating == '🟢 ACCUMULAZIONE PULITA': score += 10
-    if divergenza == 'Rialzista 🟢': score += 10
-    if trend_volumi_5g == 'In Accelerazione 📈': score += 8
-    elif trend_volumi_5g == 'In Raffreddamento 📉': score -= 10
-    if reg_vol_20g == 'In Crescita 📈': score += 5
-    if reg_vol_50g == 'In Crescita 📈': score += 7
-    elif reg_vol_50g == 'In Esaurimento 📉': score -= 7
+    if sconto_fv_pct > 30:
+      score += 25
+    elif sconto_fv_pct > 15:
+      score += 15
+    elif sconto_fv_pct > 0:
+      score += 5
+    if cmf_corrente > 0.10:
+      score += 15
+    elif cmf_corrente > 0:
+      score += 8
+    if vsa_rating == '🟢 ACCUMULAZIONE PULITA':
+      score += 15
+    elif vsa_rating == '🟡 NEUTRO':
+      score += 5
+    if reg_vol_50g == 'In Crescita 📈':
+      score += 15
+    elif reg_vol_50g == 'In Esaurimento 📉':
+      score -= 10
+    if reg_vol_20g == 'In Crescita 📈':
+      score += 10
+    if trend_volumi_5g == 'In Accelerazione 📈':
+      score += 10
+    elif trend_volumi_5g == 'In Raffreddamento 📉':
+      score -= 15
+    if divergenza == 'Rialzista 🟢':
+      score += 15
+    if curr['Close'] > curr['EMA20']:
+      score += 5
     score = max(0, min(100, int(score)))
     
     return {
@@ -419,17 +583,23 @@ def analizza_titolo(ticker_str, data_oggi, df_spy_close):
         'Idoneità Portafoglio Personale (PAC/Lungo)': suggerimento_portafoglio,
         'Orizzonte Strategico': orizzonte,
         'Prezzo Attuale ($)': round(prezzo_attuale, 2),
-        'Forza Relativa (RS 60G)': f'{forza_relativa:+.1f}%',
-        'Sopra VWAP Trimestrale?': 'Sì 🟢' if sopra_vwap else 'No 🔴',
-        'ATR Dinamico (14G)': round(atr_val, 2),
+        'Fair Value Stimato ($)': fair_value,
+        'Sconto su Fair Value (%)': sconto_fv_pct,
+        'Metodo Valutazione FV': metodo_valutazione,
         'Supporto 60G ($)': round(supporto_60g, 2),
         'Distanza dal Minimo 60G (%)': distanza_minimo_60g_pct,
         'Resistenza Max 52W ($)': round(massimo_52w, 2),
         'Storno dai Max 52W (%)': round(storno_pct, 1),
         'Distanza da SMA 50 (%)': dist_sma50_pct,
         'Distanza da SMA 200 (%)': dist_sma200_pct,
-        'Trend di Fondo': '🔴 BEAR (Sotto SMA200)' if is_bear_market else '🟢 BULL (Sopra SMA200)',
-        'Target Price Medio ($)': round(target_price, 2) if target_price else 'N/D',
+        'Trend di Fondo': (
+            '🔴 BEAR (Sotto SMA200)'
+            if is_bear_market
+            else '🟢 BULL (Sopra SMA200)'
+        ),
+        'Target Price Medio ($)': (
+            round(target_price, 2) if target_price else 'N/D'
+        ),
         'Upside Atteso (%)': upside,
         'RSI (14)': round(float(curr['RSI']), 1),
         'Chaikin Money Flow (CMF)': round(cmf_corrente, 3),
@@ -462,36 +632,41 @@ def genera_excel(df_risultati):
   df_export = df_risultati[cols_to_export]
   for r in dataframe_to_rows(df_export, index=False, header=True):
     ws.append(r)
-    
-  header_fill = PatternFill(start_color='1F4E79', end_color='1F4E79', fill_type='solid')
-  top_fill = PatternFill(start_color='D9EAD3', end_color='D9EAD3', fill_type='solid')
+  header_fill = PatternFill(
+      start_color='1F4E79', end_color='1F4E79', fill_type='solid'
+  )
+  top_fill = PatternFill(
+      start_color='D9EAD3', end_color='D9EAD3', fill_type='solid'
+  )
   header_font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
   thin_border = Border(
       left=openpyxl.styles.Side(style='thin', color='D9D9D9'),
       right=openpyxl.styles.Side(style='thin', color='D9D9D9'),
       top=openpyxl.styles.Side(style='thin', color='D9D9D9'),
-      bottom=openpyxl.styles.Side(style='thin', color='D9D9D9')
+      bottom=openpyxl.styles.Side(style='thin', color='D9D9D9'),
   )
   for cell in ws[1]:
     cell.fill = header_fill
     cell.font = header_font
-    cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    
-  for row_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row, max_col=ws.max_column), start=2):
+    cell.alignment = Alignment(
+        horizontal='center', vertical='center', wrap_text=True
+    )
+  for row_idx, row in enumerate(
+      ws.iter_rows(min_row=2, max_row=ws.max_row, max_col=ws.max_column),
+      start=2,
+  ):
     is_top10 = row_idx <= 11
     for cell in row:
       cell.border = thin_border
       cell.alignment = Alignment(horizontal='center', vertical='center')
       if is_top10:
         cell.fill = top_fill
-        
   for col in ws.columns:
     max_len = max(len(str(cell.value or '')) for cell in col)
     col_letter = openpyxl.utils.get_column_letter(col[0].column)
     ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 50)
-    
   data_oggi = datetime.now().strftime('%Y-%m-%d')
-  excel_file = f'Consulente_Smart_Money_Advanced_{data_oggi}.xlsx'
+  excel_file = f'Consulente_Smart_Money_{data_oggi}.xlsx'
   wb.save(excel_file)
   return excel_file
 
@@ -500,21 +675,29 @@ def genera_excel(df_risultati):
 # =====================================================================
 def invia_email_report(file_path, data_oggi, num_titoli):
   if not all([SENDER_EMAIL, APP_PASSWORD]):
-    print('⚠️ Credenziali e-mail non configurate. File Excel salvato nella cartella locale.')
+    print(
+        '⚠️ Credenziali e-mail non configurate. File Excel salvato nella'
+        ' cartella locale.'
+    )
     return
   msg = MIMEMultipart()
   msg['From'] = SENDER_EMAIL
   msg['To'] = RECEIVER_EMAIL
-  msg['Subject'] = f'🧠 Report Consulente Smart Money Advanced ({data_oggi}) - Trovate {num_titoli} Occasioni'
+  msg['Subject'] = (
+      f'🧠 Report Consulente Smart Money ({data_oggi}) - Trovate'
+      f' {num_titoli} Occasioni'
+  )
   body = (
-      f'Ciao! Il tuo consulente virtuale ha completato l\'analisi avanzata in data {data_oggi}.\n\n'
-      f'Aggiornamento inserito: integrazione completa di Forza Relativa (RS vs SPY), VWAP istituzionale, ATR dinamico e triplo binario dei volumi.\n'
-      f'Buon gain!'
+      f"Ciao! Il tuo consulente virtuale ha completato l'analisi in data"
+      f' {data_oggi}.\n\n'
+      'Aggiornamento inserito: integrato Fair Value Multi-Modello adattivo (Growth, Value, Banche), Bonus R&D nei bilanci e ordinamento per opportunità di momento.\nBuon gain!'
   )
   msg.attach(MIMEText(body, 'plain', 'utf-8'))
   with open(file_path, 'rb') as f:
     part = MIMEApplication(f.read(), Name=os.path.basename(file_path))
-    part['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
+    part['Content-Disposition'] = (
+        f'attachment; filename="{os.path.basename(file_path)}"'
+    )
     msg.attach(part)
   try:
     server = smtplib.SMTP('smtp.gmail.com', 587)
@@ -522,7 +705,7 @@ def invia_email_report(file_path, data_oggi, num_titoli):
     server.login(SENDER_EMAIL, APP_PASSWORD)
     server.send_message(msg)
     server.quit()
-    print('✅ E-mail con report Excel avanzato inviata con successo!')
+    print('✅ E-mail con report Excel inviata con successo!')
   except Exception as e:
     print(f'❌ Errore invio e-mail: {e}')
 
@@ -531,32 +714,29 @@ def invia_email_report(file_path, data_oggi, num_titoli):
 # =====================================================================
 if __name__ == '__main__':
   data_oggi = datetime.now().strftime('%Y-%m-%d')
-  print(f'=== Avvio Consulente Smart Money & Screener Advanced ({data_oggi}) ===')
-  
-  # Scarichiamo preventivamente il benchmark SPY per la Forza Relativa
-  print('📊 Download benchmark SPY in corso...')
-  df_spy_close = scarica_benchmark_spy()
-  
+  print(f'=== Avvio Consulente Smart Money & Screener ({data_oggi}) ===')
   tickers = ottieni_ticker_usa()
   print(f'Titoli totali in scansione: {len(tickers)}')
-  
   risultati = []
   for idx, t in enumerate(tickers):
-    res = analizza_titolo(t, data_oggi, df_spy_close)
+    res = analizza_titolo(t, data_oggi)
     if res:
       risultati.append(res)
     if (idx + 1) % 100 == 0:
       print(f'Analizzati {idx + 1}/{len(tickers)}...')
-      
   if risultati:
     df_res = pd.DataFrame(risultati)
-    df_res = df_res.sort_values(by=['_score_interno', 'Chaikin Money Flow (CMF)'], ascending=False).reset_index(drop=True)
+    df_res = df_res.sort_values(
+        by=['_score_interno', 'Sconto su Fair Value (%)'], ascending=False
+    ).reset_index(drop=True)
     for i in range(min(10, len(df_res))):
       df_res.at[i, 'TOP 10 OCCASIONI'] = f'⭐ TOP {i+1}'
     df_res = df_res.drop(columns=['_score_interno'])
-    
     excel_path = genera_excel(df_res)
     invia_email_report(excel_path, data_oggi, len(df_res))
-    print(f'🚀 Analisi avanzata completata! Il consulente ha selezionato {len(df_res)} occasioni salvate nel file Excel.')
+    print(
+        f'🚀 Analisi completata! Il consulente ha selezionato'
+        f' {len(df_res)} occasioni salvate nel file Excel.'
+    )
   else:
     print('Nessun titolo rispetta i criteri del consulente per oggi.')
