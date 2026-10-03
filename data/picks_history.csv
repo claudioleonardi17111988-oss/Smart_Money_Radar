@@ -955,8 +955,8 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,CSL,62,False,54.9,ATTESA,False,325.21,408.08,20.31,Alta,Industrials,-0.182,24.2,RISK-ON
 2026-10-01,YETI,63,False,54.6,ATTESA,False,41.37,54.93,24.69,Bassa,Consumer Cyclical,-0.092,23.4,RISK-ON
 2026-10-01,KEX,64,False,54.5,ATTESA,False,133.46,141.72,5.83,Alta,Industrials,-0.055,15.4,RISK-ON
-2026-10-01,ALGM,65,False,54.3,BREVE/MEDIO,True,36.38,47.24,22.99,Bassa,Technology,-0.03,49.3,RISK-ON
-2026-10-01,SYNA,66,False,54.3,BREVE/MEDIO,True,106.15,130.33,18.55,Media,Technology,0.195,28.8,RISK-ON
+2026-10-01,SYNA,65,False,54.4,BREVE/MEDIO,True,106.15,130.33,18.55,Media,Technology,0.198,28.8,RISK-ON
+2026-10-01,ALGM,66,False,54.3,BREVE/MEDIO,True,36.38,47.24,22.99,Bassa,Technology,-0.03,49.3,RISK-ON
 2026-10-01,DHI,67,False,54.3,ATTESA,False,137.06,146.34,6.34,Alta,Consumer Cyclical,-0.027,21.3,RISK-ON
 2026-10-01,GMED,68,False,54.1,ATTESA,False,74.41,103.23,27.92,Bassa,Healthcare,-0.124,26.6,RISK-ON
 2026-10-01,PVH,69,False,54.0,ATTESA,False,75.85,191.38,60.37,Media,Consumer Cyclical,-0.123,24.7,RISK-ON
@@ -969,7 +969,7 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,CRUS,76,False,53.7,PAC,True,120.17,106.8,-12.52,Media,Technology,0.123,33.4,RISK-ON
 2026-10-01,SAIA,77,False,53.7,PAC,True,344.38,242.77,-41.86,Media,Industrials,0.054,30.4,RISK-ON
 2026-10-01,VICR,78,False,53.7,CASSETTO,True,308.59,190.19,-62.26,Bassa,Technology,0.277,19.4,RISK-ON
-2026-10-01,AZO,79,False,53.6,ATTESA,False,2819.03,6153.11,54.19,Media,Consumer Cyclical,-0.2,34.3,RISK-ON
+2026-10-01,AZO,79,False,53.6,ATTESA,False,2819.03,6153.11,54.19,Media,Consumer Cyclical,-0.2,33.7,RISK-ON
 2026-10-01,ST,80,False,53.6,ATTESA,False,42.35,57.72,26.63,Bassa,Technology,-0.008,21.2,RISK-ON
 2026-10-01,COHR,81,False,53.2,ATTESA,False,319.19,446.57,28.52,Media,Technology,-0.098,27.5,RISK-ON
 2026-10-01,JBL,82,False,53.1,BREVE/MEDIO,True,299.79,427.33,29.85,Bassa,Technology,-0.004,30.1,RISK-ON
@@ -980,7 +980,7 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,WWD,87,False,52.7,BREVE/MEDIO,True,336.19,182.64,-84.07,Bassa,Industrials,0.152,25.4,RISK-ON
 2026-10-01,ULS,88,False,52.6,ATTESA,False,66.5,89.69,25.85,Media,Industrials,-0.322,38.0,RISK-ON
 2026-10-01,CDNS,89,False,52.6,ATTESA,False,350.73,305.84,-14.68,Bassa,Technology,0.025,15.8,RISK-ON
-2026-10-01,CVLT,90,False,52.5,CASSETTO,True,147.77,160.55,7.96,Media,Technology,0.205,22.3,RISK-ON
+2026-10-01,CVLT,90,False,52.5,CASSETTO,True,147.77,160.55,7.96,Media,Technology,0.205,20.6,RISK-ON
 2026-10-01,CSCO,91,False,52.4,ATTESA,False,108.76,137.25,20.76,Bassa,Technology,-0.018,16.3,RISK-ON
 2026-10-01,ATI,92,False,52.4,BREVE/MEDIO,True,191.14,108.34,-76.43,Bassa,Industrials,0.042,21.5,RISK-ON
 2026-10-01,DD,93,False,52.2,ATTESA,False,129.2,170.0,24.0,Media,Basic Materials,0.027,17.2,RISK-ON
@@ -1000,7 +1000,7 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,FNF,107,False,50.7,ATTESA,False,39.11,61.4,36.3,Media,Financial Services,-0.274,30.7,RISK-ON
 2026-10-01,HQY,108,False,50.7,ATTESA,False,89.37,119.33,25.11,Bassa,Healthcare,-0.092,17.0,RISK-ON
 2026-10-01,SSD,109,False,50.7,ATTESA,False,172.59,181.53,4.92,Media,Basic Materials,-0.085,18.9,RISK-ON
-2026-10-01,GNTX,110,False,50.5,ATTESA,False,21.95,28.22,22.23,Alta,Consumer Cyclical,-0.226,20.0,RISK-ON
+2026-10-01,GNTX,110,False,50.5,ATTESA,False,21.95,28.22,22.23,Alta,Consumer Cyclical,-0.226,19.8,RISK-ON
 2026-10-01,FAF,111,False,50.3,ATTESA,False,61.51,87.67,29.84,Alta,Financial Services,-0.255,22.3,RISK-ON
 2026-10-01,RPM,112,False,50.3,BREVE/MEDIO,True,99.22,87.42,-13.5,Media,Basic Materials,0.068,17.7,RISK-ON
 2026-10-01,DKS,113,False,50.2,ATTESA,False,132.85,422.44,68.55,Media,Consumer Cyclical,-0.069,45.1,RISK-ON
@@ -1012,9 +1012,9 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,MRSH,119,False,49.8,BREVE/MEDIO,True,171.85,136.92,-25.51,Bassa,Financial Services,-0.146,15.5,RISK-ON
 2026-10-01,GGG,120,False,49.7,PAC,True,77.76,59.42,-30.86,Media,Industrials,0.116,18.1,RISK-ON
 2026-10-01,GDDY,121,False,49.6,ATTESA,False,96.98,158.57,38.84,Bassa,Technology,-0.047,30.5,RISK-ON
-2026-10-01,FIX,122,False,49.6,CASSETTO,True,1685.29,1023.03,-64.73,Bassa,Industrials,0.083,18.7,RISK-ON
-2026-10-01,ALB,123,False,49.5,ATTESA,False,105.03,171.56,38.78,Alta,Basic Materials,-0.209,52.2,RISK-ON
-2026-10-01,ABNB,124,False,49.5,ATTESA,False,160.47,184.35,12.95,Alta,Consumer Cyclical,-0.202,17.0,RISK-ON
+2026-10-01,ABNB,122,False,49.6,ATTESA,False,160.47,184.35,12.95,Alta,Consumer Cyclical,-0.201,17.0,RISK-ON
+2026-10-01,FIX,123,False,49.6,CASSETTO,True,1685.29,1023.03,-64.73,Bassa,Industrials,0.083,18.7,RISK-ON
+2026-10-01,ALB,124,False,49.5,ATTESA,False,105.03,171.56,38.78,Alta,Basic Materials,-0.209,52.2,RISK-ON
 2026-10-01,VLY,125,False,49.3,ATTESA,False,12.67,16.68,24.03,Media,Financial Services,-0.068,16.0,RISK-ON
 2026-10-01,VMI,126,False,49.3,ATTESA,False,468.28,441.64,-6.03,Media,Industrials,-0.106,19.8,RISK-ON
 2026-10-01,ALGN,127,False,49.1,ATTESA,False,145.35,206.36,29.56,Bassa,Healthcare,-0.059,27.5,RISK-ON
@@ -1028,7 +1028,7 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,ENTG,135,False,48.3,CASSETTO,True,158.48,160.5,1.26,Media,Technology,0.368,15.2,RISK-ON
 2026-10-01,BURL,136,False,48.2,PAC,True,275.32,312.03,11.76,Media,Consumer Cyclical,0.088,27.2,RISK-ON
 2026-10-01,AAON,137,False,48.2,BREVE/MEDIO,True,82.28,59.47,-38.35,Bassa,Industrials,0.01,45.2,RISK-ON
-2026-10-01,SMCI,138,False,47.9,CASSETTO,True,41.92,42.38,1.07,Bassa,Technology,0.051,28.7,RISK-ON
+2026-10-01,SMCI,138,False,47.9,CASSETTO,True,41.92,42.38,1.07,Bassa,Technology,0.052,28.7,RISK-ON
 2026-10-01,IR,139,False,47.9,BREVE/MEDIO,True,75.25,66.59,-13.0,Media,Industrials,-0.054,25.4,RISK-ON
 2026-10-01,VFC,140,False,47.7,PAC,True,14.41,18.33,21.37,Bassa,Consumer Cyclical,0.138,34.5,RISK-ON
 2026-10-01,IESC,141,False,47.7,CASSETTO,True,330.16,137.79,-139.61,Bassa,Industrials,0.05,19.1,RISK-ON
@@ -1044,8 +1044,8 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,RCL,151,False,46.5,ATTESA,False,269.99,537.9,49.81,Media,Consumer Cyclical,-0.107,23.0,RISK-ON
 2026-10-01,HBAN,152,False,46.5,BREVE/MEDIO,True,15.19,19.75,23.1,Media,Financial Services,-0.095,19.6,RISK-ON
 2026-10-01,FERG,153,False,46.5,ATTESA,False,221.49,213.08,-3.95,Media,Industrials,-0.079,17.5,RISK-ON
-2026-10-01,CHRW,154,False,46.3,PAC,True,153.14,127.52,-20.09,Bassa,Industrials,0.106,26.9,RISK-ON
-2026-10-01,MRVL,155,False,46.3,CASSETTO,True,268.08,216.61,-23.76,Media,Technology,0.178,18.7,RISK-ON
+2026-10-01,MRVL,154,False,46.3,CASSETTO,True,268.08,216.61,-23.76,Media,Technology,0.178,18.7,RISK-ON
+2026-10-01,CHRW,155,False,46.2,PAC,True,153.14,127.52,-20.09,Bassa,Industrials,0.106,26.9,RISK-ON
 2026-10-01,ATR,156,False,46.1,ATTESA,False,120.87,88.62,-36.4,Bassa,Healthcare,-0.025,17.1,RISK-ON
 2026-10-01,MORN,157,False,46.0,ATTESA,False,191.21,167.26,-14.32,Bassa,Financial Services,0.032,15.8,RISK-ON
 2026-10-01,IT,158,False,45.9,ATTESA,False,192.8,277.8,30.6,Bassa,Technology,-0.089,26.4,RISK-ON
@@ -1077,7 +1077,7 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,PWR,184,False,43.7,CASSETTO,True,662.6,336.16,-97.11,Bassa,Industrials,0.079,16.0,RISK-ON
 2026-10-01,PII,185,False,43.6,ATTESA,False,52.37,71.93,27.2,Alta,Consumer Cyclical,-0.218,32.1,RISK-ON
 2026-10-01,FR,186,False,43.6,ATTESA,False,58.87,72.25,18.52,Bassa,Real Estate,-0.026,15.1,RISK-ON
-2026-10-01,EXLS,187,False,43.6,ATTESA,False,36.48,44.62,18.25,Bassa,Technology,-0.071,17.4,RISK-ON
+2026-10-01,EXLS,187,False,43.6,ATTESA,False,36.48,44.62,18.25,Bassa,Technology,-0.071,16.9,RISK-ON
 2026-10-01,BF-B,188,False,43.6,ATTESA,False,25.97,30.85,15.82,Alta,Consumer Defensive,-0.247,15.8,RISK-ON
 2026-10-01,TRMB,189,False,43.5,ATTESA,False,57.53,79.5,27.64,Media,Technology,0.0,31.9,RISK-ON
 2026-10-01,JEF,190,False,43.3,BREVE/MEDIO,True,45.25,53.44,15.33,Media,Financial Services,-0.048,30.5,RISK-ON
@@ -1089,7 +1089,7 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,NBIX,196,False,42.8,ATTESA,False,140.71,207.81,32.29,Bassa,Healthcare,-0.207,24.4,RISK-ON
 2026-10-01,LSTR,197,False,42.8,ATTESA,False,170.14,130.31,-30.57,Bassa,Industrials,-0.001,25.4,RISK-ON
 2026-10-01,PEGA,198,False,42.7,ATTESA,False,34.43,51.44,33.07,Bassa,Technology,-0.046,49.2,RISK-ON
-2026-10-01,FICO,199,False,42.4,ATTESA,False,661.75,1434.89,53.88,Media,Technology,-0.134,66.9,RISK-ON
+2026-10-01,FICO,199,False,42.4,ATTESA,False,661.75,1434.89,53.88,Media,Technology,-0.133,64.9,RISK-ON
 2026-10-01,HII,200,False,42.3,ATTESA,False,274.33,354.19,22.55,Media,Industrials,-0.16,39.8,RISK-ON
 2026-10-01,SLM,201,False,41.9,ATTESA,False,22.61,40.4,44.04,Media,Financial Services,-0.247,25.9,RISK-ON
 2026-10-01,COST,202,False,41.9,PAC,True,914.94,450.0,-103.32,Bassa,Consumer Defensive,0.057,16.4,RISK-ON
@@ -1121,10 +1121,10 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,KNSL,228,False,39.7,ATTESA,False,334.53,259.76,-28.78,Media,Financial Services,-0.123,30.8,RISK-ON
 2026-10-01,BDC,229,False,39.5,ATTESA,False,108.28,153.2,29.32,Bassa,Technology,-0.313,32.2,RISK-ON
 2026-10-01,BWXT,230,False,39.5,BREVE/MEDIO,True,136.79,89.3,-53.18,Bassa,Industrials,-0.165,43.3,RISK-ON
-2026-10-01,BKNG,231,False,39.4,ATTESA,False,160.28,238.78,32.88,Bassa,Consumer Cyclical,-0.302,28.1,RISK-ON
+2026-10-01,BKNG,231,False,39.4,ATTESA,False,160.28,238.78,32.88,Bassa,Consumer Cyclical,-0.303,28.1,RISK-ON
 2026-10-01,GS,232,False,39.4,BREVE/MEDIO,True,896.67,880.94,-1.79,Media,Financial Services,-0.01,21.9,RISK-ON
 2026-10-01,FE,233,False,39.3,BREVE/MEDIO,True,43.39,47.19,8.05,Media,Utilities,-0.164,15.4,RISK-ON
-2026-10-01,VRSK,234,False,39.3,ATTESA,False,168.38,147.87,-13.87,Media,Industrials,-0.081,32.5,RISK-ON
+2026-10-01,VRSK,234,False,39.3,ATTESA,False,168.38,147.87,-13.87,Media,Industrials,-0.081,32.0,RISK-ON
 2026-10-01,ORLY,235,False,39.3,ATTESA,False,85.03,58.0,-46.61,Bassa,Consumer Cyclical,-0.023,19.3,RISK-ON
 2026-10-01,BKR,236,False,39.1,EVITARE,False,55.62,72.22,22.98,Media,Energy,-0.053,20.4,RISK-ON
 2026-10-01,EXPE,237,False,38.9,ATTESA,False,262.67,499.92,47.46,Bassa,Consumer Cyclical,-0.11,23.1,RISK-ON
@@ -1212,7 +1212,7 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,FOXA,319,False,30.2,EVITARE,False,61.28,76.42,19.81,Bassa,Communication Services,-0.034,19.0,RISK-ON
 2026-10-01,TTEK,320,False,30.1,EVITARE,False,33.72,29.54,-14.14,Media,Industrials,-0.188,21.3,RISK-ON
 2026-10-01,BMRN,321,False,30.0,EVITARE,False,58.44,211.83,72.41,Media,Healthcare,-0.286,17.7,RISK-ON
-2026-10-01,TMUS,322,False,30.0,EVITARE,False,161.73,244.12,33.75,Bassa,Communication Services,-0.168,29.2,RISK-ON
+2026-10-01,TMUS,322,False,30.0,EVITARE,False,161.73,244.12,33.75,Bassa,Communication Services,-0.168,28.5,RISK-ON
 2026-10-01,LMT,323,False,29.9,EVITARE,False,505.5,556.82,9.22,Media,Industrials,-0.165,26.0,RISK-ON
 2026-10-01,CBOE,324,False,29.7,EVITARE,False,277.19,182.68,-51.74,Media,Financial Services,-0.14,25.0,RISK-ON
 2026-10-01,UMBF,325,False,29.6,EVITARE,False,129.79,166.56,22.08,Alta,Financial Services,-0.234,15.0,RISK-ON
@@ -1245,8 +1245,8 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,SIRI,352,False,26.2,EVITARE,False,25.64,58.64,56.28,Media,Communication Services,-0.222,20.8,RISK-ON
 2026-10-01,AJG,353,False,26.0,ATTESA,False,231.82,178.36,-29.98,Media,Financial Services,-0.274,25.2,RISK-ON
 2026-10-01,ROL,354,False,25.9,ATTESA,False,30.57,22.56,-35.51,Bassa,Consumer Cyclical,-0.272,53.3,RISK-ON
-2026-10-01,GEV,355,False,25.6,EVITARE,False,987.45,983.86,-0.36,Bassa,Industrials,-0.056,17.4,RISK-ON
-2026-10-01,ALL,356,False,25.5,EVITARE,False,224.41,276.09,18.72,Alta,Financial Services,-0.34,18.7,RISK-ON
+2026-10-01,ALL,355,False,25.6,EVITARE,False,224.41,276.09,18.72,Alta,Financial Services,-0.34,18.7,RISK-ON
+2026-10-01,GEV,356,False,25.6,EVITARE,False,987.45,983.86,-0.36,Bassa,Industrials,-0.056,17.4,RISK-ON
 2026-10-01,XYL,357,False,25.3,EVITARE,False,100.88,106.17,4.99,Media,Industrials,-0.176,33.7,RISK-ON
 2026-10-01,FIVE,358,False,25.3,ATTESA,False,221.17,132.76,-66.6,Bassa,Consumer Cyclical,-0.228,16.2,RISK-ON
 2026-10-01,ERIE,359,False,25.1,ATTESA,False,222.11,103.8,-113.98,Media,Financial Services,-0.267,31.7,RISK-ON
@@ -1262,7 +1262,7 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,STLD,369,False,23.7,EVITARE,False,226.17,254.46,11.12,Media,Basic Materials,-0.264,21.3,RISK-ON
 2026-10-01,FIS,370,False,23.3,EVITARE,False,33.1,80.39,58.83,Media,Technology,-0.398,50.3,RISK-ON
 2026-10-01,GOOG,371,False,23.2,EVITARE,False,334.93,256.22,-30.72,Media,Communication Services,-0.071,17.1,RISK-ON
-2026-10-01,AKAM,372,False,23.1,EVITARE,False,106.93,158.87,32.69,Bassa,Technology,-0.404,35.4,RISK-ON
+2026-10-01,AKAM,372,False,23.1,EVITARE,False,106.93,158.87,32.69,Bassa,Technology,-0.403,35.4,RISK-ON
 2026-10-01,NUE,373,False,22.7,EVITARE,False,235.98,257.1,8.21,Media,Basic Materials,-0.255,15.6,RISK-ON
 2026-10-01,BYD,374,False,22.6,EVITARE,False,66.07,95.94,31.13,Media,Consumer Cyclical,-0.331,27.5,RISK-ON
 2026-10-01,FLG,375,False,22.6,EVITARE,False,11.69,16.1,27.38,Alta,Financial Services,-0.436,24.2,RISK-ON
@@ -1290,8 +1290,8 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,UHS,397,False,17.8,EVITARE,False,175.07,194.35,9.92,Bassa,Healthcare,-0.246,28.6,RISK-ON
 2026-10-01,ELAN,398,False,17.6,EVITARE,False,21.77,31.0,29.77,Media,Healthcare,-0.223,22.2,RISK-ON
 2026-10-01,WTW,399,False,17.2,EVITARE,False,291.6,274.24,-6.33,Media,Financial Services,-0.272,16.8,RISK-ON
-2026-10-01,NKE,400,False,16.8,EVITARE,False,35.15,26.19,-34.19,Media,Consumer Cyclical,-0.25,52.8,RISK-ON
-2026-10-01,SPGI,401,False,16.8,EVITARE,False,388.16,242.63,-59.98,Bassa,Financial Services,-0.304,25.2,RISK-ON
+2026-10-01,SPGI,400,False,16.8,EVITARE,False,388.16,242.63,-59.98,Bassa,Financial Services,-0.304,25.2,RISK-ON
+2026-10-01,NKE,401,False,16.3,EVITARE,False,35.15,26.19,-34.19,Media,Consumer Cyclical,-0.255,51.4,RISK-ON
 2026-10-01,WLK,402,False,16.1,ATTESA,False,62.47,41.3,-51.26,Bassa,Basic Materials,-0.218,49.1,RISK-ON
 2026-10-01,JLL,403,False,15.8,EVITARE,False,308.07,427.0,27.85,Bassa,Real Estate,-0.229,21.8,RISK-ON
 2026-10-01,HUBS,404,False,15.8,ATTESA,False,217.45,249.72,12.92,Bassa,Technology,-0.357,56.8,RISK-ON
@@ -1309,7 +1309,7 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,EAT,416,False,13.2,EVITARE,False,194.33,265.09,26.69,Bassa,Consumer Cyclical,-0.243,23.8,RISK-ON
 2026-10-01,BG,417,False,12.9,EVITARE,False,106.61,202.72,47.41,Media,Consumer Defensive,-0.342,20.5,RISK-ON
 2026-10-01,JKHY,418,False,12.8,EVITARE,False,143.84,98.26,-46.39,Bassa,Technology,-0.368,24.7,RISK-ON
-2026-10-01,PSN,419,False,12.5,EVITARE,False,41.01,59.64,31.23,Bassa,Technology,-0.254,54.2,RISK-ON
+2026-10-01,PSN,419,False,12.6,EVITARE,False,41.01,59.64,31.23,Bassa,Technology,-0.254,54.2,RISK-ON
 2026-10-01,KKR,420,False,12.4,EVITARE,False,91.24,88.91,-2.62,Media,Financial Services,-0.215,36.6,RISK-ON
 2026-10-01,GBCI,421,False,12.3,EVITARE,False,43.41,43.08,-0.77,Media,Financial Services,-0.255,20.5,RISK-ON
 2026-10-01,TRU,422,False,12.2,EVITARE,False,62.18,66.86,7.0,Media,Financial Services,-0.176,29.9,RISK-ON
@@ -1341,8 +1341,8 @@ date,symbol,rank,top10,score,categoria,azionabile,price,fv,sconto,conf,sector,cm
 2026-10-01,TSLA,448,False,6.3,EVITARE,False,354.11,395.83,10.54,Bassa,Consumer Cyclical,-0.21,29.0,RISK-ON
 2026-10-01,SLB,449,False,6.1,EVITARE,False,48.66,35.54,-36.9,Bassa,Energy,-0.296,19.1,RISK-ON
 2026-10-01,BX,450,False,5.5,EVITARE,False,112.24,89.82,-24.96,Media,Financial Services,-0.286,31.3,RISK-ON
-2026-10-01,WPC,451,False,5.3,EVITARE,False,63.83,77.33,17.46,Bassa,Real Estate,-0.362,16.1,RISK-ON
-2026-10-01,GPC,452,False,5.3,EVITARE,False,125.12,139.22,10.13,Bassa,Consumer Cyclical,-0.253,15.1,RISK-ON
+2026-10-01,GPC,451,False,5.4,EVITARE,False,125.12,139.22,10.13,Bassa,Consumer Cyclical,-0.253,15.1,RISK-ON
+2026-10-01,WPC,452,False,5.3,EVITARE,False,63.83,77.33,17.46,Bassa,Real Estate,-0.362,16.1,RISK-ON
 2026-10-01,VNOM,453,False,4.3,EVITARE,False,40.69,27.73,-46.72,Bassa,Energy,-0.487,18.0,RISK-ON
 2026-10-01,KTOS,454,False,4.2,EVITARE,False,42.82,18.72,-128.73,Bassa,Industrials,-0.26,68.0,RISK-ON
 2026-10-01,WY,455,False,3.9,EVITARE,False,18.59,31.0,40.03,Bassa,Real Estate,-0.539,31.2,RISK-ON
