@@ -1,16 +1,16 @@
 # Forward test Money Flow Pro
 
-Segnalazioni storiche: 3528 su 8 sedute (dal 2026-09-28 al 2026-10-09).
+Segnalazioni storiche: 4796 su 11 sedute (dal 2026-09-28 al 2026-10-15).
 
 | Gruppo | Orizzonte (sedute) | N | Rend. medio % | Rend. mediano % | Eccesso vs SPY % | Hit rate vs SPY % |
 |---|---|---|---|---|---|---|
-| Top 10 | 5 | 30 | 0.0 | -0.1 | -1.5 | 40.0 |
-| Azionabili | 5 | 253 | 1.5 | 1.4 | 0.1 | 49.0 |
-| Tutti i candidati | 5 | 1354 | 1.5 | 0.9 | 0.0 | 43.7 |
-| Score Q5 (piu' alto) | 5 | 272 | 2.5 | 1.6 | 1.0 | 51.5 |
-| Score Q4 | 5 | 270 | 1.5 | 1.1 | -0.0 | 45.9 |
-| Score Q3 | 5 | 270 | 1.4 | 0.8 | -0.1 | 40.0 |
-| Score Q2 | 5 | 270 | 1.1 | 0.7 | -0.4 | 41.9 |
-| Score Q1 (piu' basso) | 5 | 272 | 0.9 | 0.7 | -0.6 | 39.3 |
+| Top 10 | 5 | 80 | -2.7 | -0.7 | -2.9 | 42.5 |
+| Azionabili | 5 | 844 | -1.1 | -0.1 | -1.1 | 50.7 |
+| Tutti i candidati | 5 | 3528 | 0.5 | 0.9 | 0.3 | 54.9 |
+| Score Q5 (piu' alto) | 5 | 707 | -0.6 | 0.5 | -0.8 | 52.2 |
+| Score Q4 | 5 | 704 | 0.3 | 0.6 | 0.1 | 52.6 |
+| Score Q3 | 5 | 704 | 1.1 | 1.1 | 0.9 | 56.2 |
+| Score Q2 | 5 | 704 | 1.1 | 1.1 | 0.9 | 57.8 |
+| Score Q1 (piu' basso) | 5 | 709 | 0.6 | 1.0 | 0.4 | 55.9 |
 
 _Ingresso alla chiusura del segnale, nessun costo. Con pochi campioni i risultati sono rumore._
