@@ -1,24 +1,24 @@
 # Forward test Money Flow Pro
 
-Segnalazioni storiche: 12421 su 30 sedute (dal 2026-09-28 al 2026-11-13).
+Segnalazioni storiche: 14553 su 35 sedute (dal 2026-09-28 al 2026-11-20).
 
 | Gruppo | Orizzonte (sedute) | N | Rend. medio % | Rend. mediano % | Eccesso vs SPY % | Hit rate vs SPY % |
 |---|---|---|---|---|---|---|
-| Top 10 | 5 | 250 | -0.4 | 0.3 | -0.2 | 54.4 |
-| Top 10 | 20 | 120 | -3.6 | -1.9 | -1.6 | 49.2 |
-| Azionabili | 5 | 4493 | 0.4 | 0.9 | 0.9 | 58.7 |
-| Azionabili | 20 | 1621 | -0.3 | 2.5 | 1.9 | 60.3 |
-| Tutti i candidati | 5 | 10507 | 0.8 | 1.1 | 1.0 | 59.0 |
-| Tutti i candidati | 20 | 5227 | 3.6 | 5.7 | 5.6 | 69.8 |
-| Score Q5 (piu' alto) | 5 | 2109 | 0.6 | 1.1 | 0.8 | 58.7 |
-| Score Q5 (piu' alto) | 20 | 1049 | 0.1 | 4.0 | 2.1 | 61.2 |
-| Score Q4 | 5 | 2097 | 0.7 | 0.9 | 1.0 | 58.3 |
-| Score Q4 | 20 | 1044 | 2.6 | 4.2 | 4.6 | 66.2 |
-| Score Q3 | 5 | 2100 | 0.8 | 1.1 | 1.0 | 59.0 |
-| Score Q3 | 20 | 1045 | 4.1 | 5.8 | 6.1 | 72.4 |
-| Score Q2 | 5 | 2097 | 1.0 | 1.2 | 1.2 | 60.4 |
-| Score Q2 | 20 | 1044 | 6.2 | 7.7 | 8.2 | 75.5 |
-| Score Q1 (piu' basso) | 5 | 2104 | 0.8 | 1.1 | 1.0 | 58.4 |
-| Score Q1 (piu' basso) | 20 | 1045 | 4.8 | 6.3 | 6.8 | 73.5 |
+| Top 10 | 5 | 300 | -1.1 | -0.3 | -0.2 | 53.3 |
+| Top 10 | 20 | 160 | -3.0 | -1.7 | -0.2 | 53.8 |
+| Azionabili | 5 | 5378 | -0.5 | 0.1 | 0.6 | 56.4 |
+| Azionabili | 20 | 2492 | -0.3 | 1.8 | 2.9 | 62.8 |
+| Tutti i candidati | 5 | 12411 | -0.1 | 0.4 | 0.7 | 56.9 |
+| Tutti i candidati | 20 | 6904 | 2.4 | 4.2 | 5.1 | 68.5 |
+| Score Q5 (piu' alto) | 5 | 2491 | -0.3 | 0.3 | 0.6 | 56.4 |
+| Score Q5 (piu' alto) | 20 | 1386 | 0.3 | 3.3 | 3.0 | 63.0 |
+| Score Q4 | 5 | 2476 | -0.2 | 0.3 | 0.7 | 55.8 |
+| Score Q4 | 20 | 1378 | 1.8 | 3.2 | 4.5 | 66.2 |
+| Score Q3 | 5 | 2480 | -0.2 | 0.4 | 0.7 | 56.9 |
+| Score Q3 | 20 | 1381 | 3.3 | 4.6 | 6.0 | 71.8 |
+| Score Q2 | 5 | 2476 | 0.0 | 0.4 | 0.9 | 58.2 |
+| Score Q2 | 20 | 1378 | 4.3 | 6.0 | 7.0 | 72.1 |
+| Score Q1 (piu' basso) | 5 | 2488 | -0.1 | 0.4 | 0.8 | 57.0 |
+| Score Q1 (piu' basso) | 20 | 1381 | 2.3 | 4.0 | 5.0 | 69.5 |
 
 _Ingresso alla chiusura del segnale, nessun costo. Con pochi campioni i risultati sono rumore._
